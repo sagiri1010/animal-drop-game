@@ -175,6 +175,8 @@
          */
         let engine, runner, canvas, ctx;
         let score             = 0;
+        let gameStartTime     = 0;   // ゲーム開始時刻（Date.now()の値）
+        let elapsedSeconds    = 0;   // 経過秒数（ゲームオーバー時に固定する）
         let currentAnimalRank = 0;
         let nextAnimalRank    = 0;
         let isGameOver        = false;
@@ -438,6 +440,10 @@
             runner = Runner.create();
             Runner.run(runner, engine);
 
+            // タイマーをゲーム開始と同時にスタート
+            gameStartTime = Date.now();
+            elapsedSeconds = 0;
+
             requestAnimationFrame(renderLoop);
         }
 
@@ -643,6 +649,9 @@
         function triggerGameOver() {
             isGameOver = true;
             Runner.stop(runner);
+
+            // ゲームオーバー時点の経過秒数を確定させる（以後は更新しない）
+            elapsedSeconds = Math.floor((Date.now() - gameStartTime) / 1000);
             playGameOverSound();
             document.getElementById('final-score').innerText = `Score: ${score}`;
             document.getElementById('ui-layer').classList.add('show');
@@ -665,6 +674,8 @@
             particles                  = []; // パーティクルもリセット
             deadlineViolationStartTime = null;
             score                      = 0;
+            gameStartTime              = Date.now(); // タイマーをリセットして再スタート
+            elapsedSeconds             = 0;
             currentAnimalRank          = getRandomSpawnRank();
             nextAnimalRank             = getRandomSpawnRank();
             lastDropTime               = 0;
@@ -764,12 +775,29 @@
 
         // スコア・NEXT・図鑑UIの描画
         function drawUI() {
-            // スコア（左上）
+            // --- スコアとタイムを上部に横並びで表示 ---
+
+            // 現在の経過時間を計算（ゲームオーバー後はelapsedSecondsで固定）
+            const currentSeconds = isGameOver
+                ? elapsedSeconds
+                : Math.floor((Date.now() - gameStartTime) / 1000);
+
+            // 分・秒に変換（例: 75秒 → "1:15"）
+            const minutes = Math.floor(currentSeconds / 60);
+            const seconds = currentSeconds % 60;
+            // 秒は2桁表示（例: 5秒 → "0:05"）
+            const timeStr = `${minutes}:${String(seconds).padStart(2, '0')}`;
+
+            // スコア（左寄せ）
             ctx.fillStyle    = '#333';
-            ctx.font         = 'bold 24px Arial';
+            ctx.font         = 'bold 20px Arial';
             ctx.textAlign    = 'left';
             ctx.textBaseline = 'top';
-            ctx.fillText(`Score: ${score}`, 12, 12);
+            ctx.fillText(`Score: ${score}`, 12, 14);
+
+            // タイム（スコアの右隣・中央寄り）
+            ctx.textAlign = 'center';
+            ctx.fillText(`⏱ ${timeStr}`, CANVAS_WIDTH / 2, 14);
 
             // NEXT（右上・丸枠の中に絵文字）
             const nx = CANVAS_WIDTH - 45;
