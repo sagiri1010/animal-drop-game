@@ -6,10 +6,12 @@
     <meta name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>どうぶつ合体パズル</title>
-    <!-- Matter.js 0.19.0 -->
+    <!-- Matter.js 0.19.0 (物理エンジン) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
     <style>
-        /* CSS リセットとモバイル最適化 */
+        /* =============================================
+           CSS リセット・モバイル最適化
+        ============================================= */
         * {
             box-sizing: border-box;
             user-select: none;
@@ -47,6 +49,9 @@
             height: 100%;
         }
 
+        /* =============================================
+           ゲームオーバー オーバーレイ
+        ============================================= */
         #ui-layer {
             position: absolute;
             top: 0;
@@ -116,212 +121,507 @@
     </div>
 
     <script>
-         * ど         v1.3 (ライオン消去対応 ＋                              // 定数
-        const CANVAS_WIDTH = 3            const CANVAS          580;
-        const WALL_THICKNESS = 20;
-            t DEADLINE_Y = 80;
-        const GAME_OVER_TIME = 1500;
-        const DROP_COOLDOWN = 600;
+        /**
+         * =============================================
+         * どうぶつ合体パズル v2.0
+         *
+         * 変更点（v1.0 → v2.0）:
+         *   - ライオン同士が触れると爆発エフェクトで消滅・スコア加算
+         *   - 効果音を追加（落下音・合体音・ゲームオーバー音）
+         *     ※ Web Audio API を使用。音はすべてプログラムで生成（音声ファイル不要）
+         * =============================================
+         */
 
+        /**
+         * =============================================
+         * 1. 設定エリア（定数）
+         *    ここを変えるとゲームバランスが変わります
+         * =============================================
+         */
+        const CANVAS_WIDTH   = 360;
+        const CANVAS_HEIGHT  = 580;
+        const WALL_THICKNESS = 20;
+        const DEADLINE_Y     = 80;   // このY座標より上にいると危険
+        const GAME_OVER_TIME = 1500; // デッドライン超過からゲームオーバーまでの時間(ms)
+        const DROP_COOLDOWN  = 600;  // 落下クールダウン(ms)
+        const DICT_HEIGHT    = 100;  // 画面下部の図鑑エリアの高さ
+
+        // ランク定義（0が最小・5のライオンが最大）
         const RANKS = [
-            { id: 0, name: 'たまご', emoji: '🥚', radius: 25, score: 10,  color: '#fff8dc' },
-            { id: 1, name: 'ひよこ', emoji: '🐥', radius: 36, s,  color: '#fff3a0' },
-            { id: 2, name: 'ねこ',   emoji: '🐱', radius: 48, score: 60,  color: '#ffd6a5' },
-            { id: 3, name: 'いぬ',   emoji: '🐶', radius: 62, score: 100, c or: '#ffc8a0' },
-            { id: 4, name: 'パンダ', emoji: '🐼', radius: 76, score: 150, c or: '#e8e8e8' },
-            { id: 5, name: 'ライオン',  ji: '🦁', radius: 92, score: 500, c or: '#ffd700' }
+            { id: 0, name: 'たまご',   emoji: '🥚', radius: 25, score: 10,  color: '#fff8dc' },
+            { id: 1, name: 'ひよこ',   emoji: '🐥', radius: 36, score: 30,  color: '#fff3a0' },
+            { id: 2, name: 'ねこ',     emoji: '🐱', radius: 48, score: 60,  color: '#ffd6a5' },
+            { id: 3, name: 'いぬ',     emoji: '🐶', radius: 62, score: 100, color: '#ffc8a0' },
+            { id: 4, name: 'パンダ',   emoji: '🐼', radius: 76, score: 150, color: '#e8e8e8' },
+            { id: 5, name: 'ライオン', emoji: '🦁', radius: 92, score: 500, color: '#ffd700' },
         ];
 
-        const SPAWN_WEIG  = [
+        // スポーン抽選の重み（0〜2のみ出現）
+        const SPAWN_WEIGHTS = [
             { rank: 0, weight: 50 },
             { rank: 1, weight: 30 },
-            { rank: 2, weight: 20 }
+            { rank: 2, weight: 20 },
         ];
 
-        let Engine, Runner, Bodies, Composite, Events;
+        // Matter.js モジュールの展開
+        const { Engine, Runner, Bodies, Composite, Events, Body } = Matter;
+
+        /**
+         * =============================================
+         * 2. ゲーム変数
+         * =============================================
+         */
         let engine, runner, canvas, ctx;
-
-        let score = 0;
+        let score             = 0;
         let currentAnimalRank = 0;
-        let nextAnimalRank = 0;
-        let isGameOver = false;
-        let mouseX = CANVAS_WIDTH / 2;
-        let lastDropTime = 0;
-        let activeBodies = [];
-        let mergeReservations = {};
+        let nextAnimalRank    = 0;
+        let isGameOver        = false;
+        let mouseX            = CANVAS_WIDTH / 2;
+        let lastDropTime      = 0;
+        let activeBodies      = [];    // 現在フィールドにいるどうぶつ一覧
+        let mergeReservations = {};    // 合体予約フラグ（二重合体防止）
         let deadlineViolationStartTime = null;
-            meLoopId = null;
 
-                  EIGHT = 100;
+        // =============================================
+        // 爆発パーティクル管理配列
+        // 各要素: { x, y, vx, vy, alpha, radius, color }
+        // =============================================
+        let particles = [];
 
-        fu            e() {
-            // Matter.js            
-            if (typeof M        = 'u         ) {
-                alert("Matter.jsの読み込みに失敗         ネット接続を確認して再         い。");
-                return;
+        /**
+         * =============================================
+         * 3. 効果音システム（Web Audio API）
+         *
+         * 【なぜこの方法か】
+         *   音声ファイル(.mp3等)を使わず、JavaScriptで
+         *   波形を直接生成するため、ファイル不要で動く。
+         *
+         * 【重要：AudioContextはユーザー操作後に初期化】
+         *   ブラウザのポリシーにより、ページ読み込み直後は
+         *   音が鳴らない。最初のタップ/クリック時に初期化する。
+         * =============================================
+         */
+        let audioCtx = null; // Web Audio API のコンテキスト（最初はnull）
+
+        /**
+         * AudioContextを初期化する
+         * ユーザーの最初の操作（タップ/クリック）時に呼ぶ
+         */
+        function initAudio() {
+            // すでに初期化済みなら何もしない
+            if (audioCtx) return;
+            try {
+                // window.AudioContext が使えない古いブラウザは webkitAudioContext を試みる
+                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                if (AudioContextClass) {
+                    audioCtx = new AudioContextClass();
+                }
+            } catch (e) {
+                // 音声が使えない端末でもゲームは動くよう、エラーは無視
+                console.warn('Web Audio API を初期化できませんでした:', e);
             }
-             Engine = Matter.Engine;
-            Runner = Matter.Runner;
-            Bodies = Matter.Bodies;
-            Composite = Matter.Composite;
-            Events = Matter.Events;
+        }
 
+        /**
+         * 落下音：短いポンッという音
+         */
+        function playDropSound() {
+            if (!audioCtx) return;
+            try {
+                const osc  = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+
+                osc.type = 'sine';
+                // 600Hz から 300Hz へ素早く下がる（ポン↓）
+                osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(300, audioCtx.currentTime + 0.08);
+
+                gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(audioCtx.currentTime);
+                osc.stop(audioCtx.currentTime + 0.12);
+            } catch (e) {
+                console.warn('playDropSound error:', e);
+            }
+        }
+
+        /**
+         * 合体音：ランクが高いほど高い音でキラッと鳴る
+         * @param {number} rankId - 合体後に生まれるランク番号
+         */
+        function playMergeSound(rankId) {
+            if (!audioCtx) return;
+            try {
+                const osc  = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+
+                osc.type = 'triangle';
+                // 半音階（1.059463）をランクの2倍分だけ上げる
+                const baseFreq = 440 * Math.pow(1.059463, rankId * 2);
+                osc.frequency.setValueAtTime(baseFreq, audioCtx.currentTime);
+                // 短く上昇してキラッとさせる
+                osc.frequency.setValueAtTime(baseFreq * 1.5, audioCtx.currentTime + 0.12);
+
+                gain.gain.setValueAtTime(0.18, audioCtx.currentTime);
+                gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.28);
+
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(audioCtx.currentTime);
+                osc.stop(audioCtx.currentTime + 0.3);
+            } catch (e) {
+                console.warn('playMergeSound error:', e);
+            }
+        }
+
+        /**
+         * ライオン消滅音：派手な爆発っぽい音
+         */
+        function playLionBurstSound() {
+            if (!audioCtx) return;
+            try {
+                // ノイズ的なサウンドは sawtooth で代用
+                const osc  = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(220, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(55, audioCtx.currentTime + 0.5);
+
+                gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
+
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(audioCtx.currentTime);
+                osc.stop(audioCtx.currentTime + 0.55);
+            } catch (e) {
+                console.warn('playLionBurstSound error:', e);
+            }
+        }
+
+        /**
+         * ゲームオーバー音：ずーんと下がる音
+         */
+        function playGameOverSound() {
+            if (!audioCtx) return;
+            try {
+                const osc  = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+                osc.frequency.linearRampToValueAtTime(80, audioCtx.currentTime + 1.2);
+
+                gain.gain.setValueAtTime(0.18, audioCtx.currentTime);
+                gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 1.2);
+
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(audioCtx.currentTime);
+                osc.stop(audioCtx.currentTime + 1.3);
+            } catch (e) {
+                console.warn('playGameOverSound error:', e);
+            }
+        }
+
+        /**
+         * =============================================
+         * 4. 爆発パーティクル
+         * =============================================
+         */
+
+        /**
+         * 指定位置に爆発パーティクルを生成する
+         * @param {number} x - 爆発の中心X
+         * @param {number} y - 爆発の中心Y
+         */
+        function spawnExplosion(x, y) {
+            // パーティクルの数（多いほど派手）
+            const count = 30;
+            // ライオンの色に合わせてオレンジ・黄・白を混ぜる
+            const colors = ['#ffd700', '#ff8c00', '#ff4500', '#fff', '#ffe566'];
+
+            for (let i = 0; i < count; i++) {
+                // ランダムな角度と速度で飛び散らせる
+                const angle = (Math.PI * 2 / count) * i + (Math.random() - 0.5) * 0.5;
+                const speed = 2 + Math.random() * 6; // 速度にばらつき
+                particles.push({
+                    x:      x,
+                    y:      y,
+                    vx:     Math.cos(angle) * speed,  // X方向の速度
+                    vy:     Math.sin(angle) * speed,  // Y方向の速度
+                    alpha:  1.0,                       // 透明度（1=不透明）
+                    radius: 3 + Math.random() * 5,     // 粒の大きさにばらつき
+                    color:  colors[Math.floor(Math.random() * colors.length)],
+                });
+            }
+        }
+
+        /**
+         * パーティクルを1フレーム分更新する（毎フレーム呼ぶ）
+         * - 位置を速度分だけ動かす
+         * - 徐々に透明にする（フェードアウト）
+         * - 透明になったら配列から削除する
+         */
+        function updateParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x     += p.vx;
+                p.y     += p.vy;
+                p.vy    += 0.15;    // 重力で少し下に落ちる
+                p.alpha -= 0.035;   // 少しずつ消えていく
+                if (p.alpha <= 0) {
+                    particles.splice(i, 1); // 完全に透明になったら削除
+                }
+            }
+        }
+
+        /**
+         * パーティクルを描画する（毎フレーム呼ぶ）
+         */
+        function drawParticles() {
+            for (const p of particles) {
+                ctx.save();
+                ctx.globalAlpha = p.alpha;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fillStyle = p.color;
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        /**
+         * =============================================
+         * 5. 初期化
+         * =============================================
+         */
+        function initGame() {
             canvas = document.getElementById('gameCanvas');
-            ctx = canvas.getContext('2d');
+            ctx    = canvas.getContext('2d');
 
-            engine = Engine.create();
+            // Matter.js エンジン作成
+            engine           = Engine.create();
             engine.gravity.y = 1.2;
 
-            const floorY = CANVAS_HEIGT_HEIGHT;
-            const floor = Bodies.rectangle(
-                CANVAS_WIDTH / 2, floorY + WALL_THICKNESS / 2, 
-                CANVAS_WIDTH, WALL_THICKNESS, 
-                { isStatic: true, renderType         }
-            );
-
-            const leftWall = Bodies.re                             _THICKNESS / 2, floorY / 2, 
-                        CKNESS, floorY * 2, 
+            // 容器（床・左壁・右壁）の作成
+            const floorY   = CANVAS_HEIGHT - DICT_HEIGHT;
+            const floor    = Bodies.rectangle(
+                CANVAS_WIDTH / 2, floorY + WALL_THICKNESS / 2,
+                CANVAS_WIDTH, WALL_THICKNESS,
                 { isStatic: true, renderType: 'wall' }
             );
-
+            const leftWall = Bodies.rectangle(
+                WALL_THICKNESS / 2, floorY / 2,
+                WALL_THICKNESS, floorY * 2,
+                { isStatic: true, renderType: 'wall' }
+            );
             const rightWall = Bodies.rectangle(
-                CANVAS_WIDTH - WALL_THICKNESS / 2, floorY / 2, 
-                WALL_THICKNESS, floorY * 2, 
+                CANVAS_WIDTH - WALL_THICKNESS / 2, floorY / 2,
+                WALL_THICKNESS, floorY * 2,
                 { isStatic: true, renderType: 'wall' }
             );
-
             Composite.add(engine.world, [floor, leftWall, rightWall]);
 
+            // 最初のどうぶつを抽選
             currentAnimalRank = getRandomSpawnRank();
-            nextAnimalRank = getRandomSpawnRank();
+            nextAnimalRank    = getRandomSpawnRank();
 
             setupEvents();
 
             runner = Runner.create();
-           Runner.run(runner, engine);
+            Runner.run(runner, engine);
 
-            gmeLoopId = requestAnimationFrae(renderLoop);
+            requestAnimationFrame(renderLoop);
         }
 
-       function getRandomSpawnRank() {
-            const totalWeight = SPAWN_WEIGHTS.reduce((sum, item) => sum + item.weight, 0);
-            let random = Math.random() * totalWeght;
-            for (let i  0; i < SPAWN_WEIGHTS.length; i+) {
-                random - SPAWN_WEIGHTS[i].weight;
-                if (random <= 0) return SPAWN_WEIGHTS[i].rank;
+        /**
+         * =============================================
+         * 6. スポーン
+         * =============================================
+         */
+        function getRandomSpawnRank() {
+            const total = SPAWN_WEIGHTS.reduce((s, w) => s + w.weight, 0);
+            let rand = Math.random() * total;
+            for (const w of SPAWN_WEIGHTS) {
+                rand -= w.weight;
+                if (rand <= 0) return w.rank;
             }
             return 0;
         }
 
         function createAnimalBody(x, y, rankId) {
-           const rankInfo = RAKS[rankId];
-            const boy = Bodies.circle(x, y, ranknfo.radius, {
-                restitution: 0.2, 
-                friction: 0.5, 
-                density: 0.001 * (rankId + 1),
-                customRankId: rankId,
-                renderType: 'animal'
+            const info = RANKS[rankId];
+            const body = Bodies.circle(x, y, info.radius, {
+                restitution:    0.2,
+                friction:       0.5,
+                density:        0.001 * (rankId + 1),
+                customRankId:   rankId,
+                renderType:     'animal',
             });
             Composite.add(engine.world, body);
             activeBodies.push(body);
             return body;
         }
 
+        /**
+         * =============================================
+         * 7. 操作・落下処理
+         * =============================================
+         */
         function handleInputMove(x) {
             if (isGameOver) return;
-            const currentRadius = RANKS[currentAnimalRank].radius;
-            const minX = WALL_THICKNESS + currentRadius;
-            con        = CA         H - WALL_THICKNESS - currentRadius;
-                 X = Math.max         th.min(x, maxX));
+            const r  = RANKS[currentAnimalRank].radius;
+            mouseX   = Math.max(WALL_THICKNESS + r, Math.min(x, CANVAS_WIDTH - WALL_THICKNESS - r));
         }
 
-        functio         rop() {
+        function handleDrop() {
             if (isGameOver) return;
-            const now = Date.now();
-            if (now - lastDropTime < DROP_COOLDOWN) return;
+            if (Date.now() - lastDropTime < DROP_COOLDOWN) return;
+
+            // 音を鳴らす（最初の操作でAudioContextも初期化される）
+            initAudio();
+            playDropSound();
 
             createAnimalBody(mouseX, 40, currentAnimalRank);
-            current nextAnimalRank;
-            nextAnimalRank = getRandomSpawnRank();
+            currentAnimalRank = nextAnimalRank;
+            nextAnimalRank    = getRandomSpawnRank();
             handleInputMove(mouseX);
-            lastDropTime = now;
+            lastDropTime      = Date.now();
         }
 
         function setupEvents() {
+            // PC: マウス
             canvas.addEventListener('mousemove', (e) => {
                 const rect = canvas.getBoundingClientRect();
                 handleInputMove(e.clientX - rect.left);
             });
             canvas.addEventListener('mousedown', (e) => {
-                if (e.button === 0) handleDrop();
+                if (e.button === 0) {
+                    initAudio(); // クリックでAudioContext初期化
+                    handleDrop();
+                }
             });
 
-            canvas.addEventListener('tuchmove', (e) => {
-                e.preventDefault();                 if (!e.touches || e.touches.length === 0) return;
-                const rect = canvas.getBoundingClientRect();
+            // iPad / スマホ: タッチ
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const rect  = canvas.getBoundingClientRect();
                 const touch = e.touches[0];
                 handleInputMove(touch.clientX - rect.left);
             }, { passive: false });
-            
+
             canvas.addEventListener('touchend', (e) => {
                 e.preventDefault();
-                       rop();
+                initAudio(); // タッチでAudioContext初期化
+                handleDrop();
             }, { passive: false });
 
-            Events.         , 'collisionStart', handleCollision);
-                   function handleCollision(event) {
+            // Matter.js 衝突イベント
+            Events.on(engine, 'collisionStart', handleCollision);
+        }
+
+        /**
+         * =============================================
+         * 8. 合体処理
+         *
+         * 【ライオン特別処理】
+         *   ランク5（ライオン）同士が触れた場合は
+         *   上のランクへ合体せず、2体とも消滅させる。
+         *   消滅時に爆発エフェクトとスコアを付与する。
+         * =============================================
+         */
+        function handleCollision(event) {
             if (isGameOver) return;
-            const pairs = event.pairs;
 
-            let bodiesToRemove = [];
-            let bodiesToAdd = [];
+            const bodiesToRemove = [];
+            const bodiesToAdd    = [];
 
-            for (let i = 0; i < pairs.length; i++) {
-                const bodyA = pairs[i].bodyA;
-                const bodyB = pairs[i].bodyB;
+            for (const pair of event.pairs) {
+                const bodyA = pair.bodyA;
+                const bodyB = pair.bodyB;
 
-     f (bodyA.renderType !== 'animal' || bodyB.renderType !== 'animal') continue;
+                // どうぶつ同士の衝突のみ処理
+                if (bodyA.renderType !== 'animal' || bodyB.renderType !== 'animal') continue;
 
-                if (bodyA.customRankId === bodyB.customRankId) {
-                    const rankId = bodyA.custom                if (mergeReservations[bodyA.id] || mergeReservations[bodyB.id]) continue;
+                // 同じランクか確認
+                if (bodyA.customRankId !== bodyB.customRankId) continue;
 
-                    mergeReservations[bodyA.id] = true;
-                    mergeReservations[bodyB.id] = true;
+                const rankId = bodyA.customRankId;
 
-                    score += RANKS[rankId].score;
+                // 二重合体防止チェック
+                if (mergeReservations[bodyA.id] || mergeReservations[bodyB.id]) continue;
+
+                // 合体予約フラグを立てる
+                mergeReservations[bodyA.id] = true;
+                mergeReservations[bodyB.id] = true;
+
+                // 2体の中間点を計算（消滅位置・生成位置に使う）
+                const midX = (bodyA.position.x + bodyB.position.x) / 2;
+                const midY = (bodyA.position.y + bodyB.position.y) / 2;
+
+                // ---- ライオン（最終ランク）の特別処理 ----
+                if (rankId === RANKS.length - 1) {
+                    // スコア加算（ライオンのscore × 2）
+                    score += RANKS[rankId].score * 2;
+
+                    // 2体を削除対象に追加
                     bodiesToRemove.push(bodyA, bodyB);
 
-                    if (rankId < RANKS.length - 1) {
-            const midX = (bodyA.position.x + bodyB.position.x) / 2;
-                        const midY = (bodyA.position.y + bodyB.position.y) / 2;
-                        bodiesToAdd.push({ x: midX, y: midY, rankId: rankId + 1 });
-                    }
+                    // 爆発エフェクトを中間点に生成
+                    spawnExplosion(midX, midY);
+
+                    // 爆発音を再生
+                    playLionBurstSound();
+
+                } else {
+                    // ---- 通常の合体処理 ----
+                    score += RANKS[rankId].score;
+                    bodiesToRemove.push(bodyA, bodyB);
+                    bodiesToAdd.push({ x: midX, y: midY, rankId: rankId + 1 });
+
+                    // 合体音（次のランクに応じた高さ）
+                    playMergeSound(rankId + 1);
                 }
             }
 
+            // ループを抜けてからまとめて物理ワールドを更新
             if (bodiesToRemove.length > 0) {
                 Composite.remove(engine.world, bodiesToRemove);
                 const removeIds = new Set(bodiesToRemove.map(b => b.id));
-                activeBodies = activeBodies.filter(b => !removeIds.has(b.id));
+                activeBodies    = activeBodies.filter(b => !removeIds.has(b.id));
 
-                bodiesToAdd.forEach(data => {
+                for (const data of bodiesToAdd) {
                     const newBody = createAnimalBody(data.x, data.y, data.rankId);
-                    Matter.Body.setVelocity(newBody, {
+                    // 少しランダムな速度を与えて自然に転がらせる
+                    Body.setVelocity(newBody, {
                         x: (Math.random() - 0.5) * 2,
-                        y: (Math.random() - 0.5) * 2
+                        y: (Math.random() - 0.5) * 2,
                     });
-                });
-          }
+                }
+            }
+        }
 
+        /**
+         * =============================================
+         * 9. ゲームオーバー処理
+         * =============================================
+         */
         function checkGameOver() {
             if (isGameOver) return;
+
             let hasViolator = false;
-            for (let body of activeBodies) {
-                const radius = RANKS[body.customRankId].radius;
-                const topEdgeY = body.position.y         ;
-                const velocityMag = Math.sqrt(body.velo          2 + body.         y ** 2);
-                
-                if         Y < DEADLINE_Y && velocityMag < 1.0) {
+            for (const body of activeBodies) {
+                const radius    = RANKS[body.customRankId].radius;
+                const topEdgeY  = body.position.y - radius;
+                const speed     = Math.sqrt(body.velocity.x ** 2 + body.velocity.y ** 2);
+
+                // デッドラインを超えていて、かつほぼ止まっている場合を違反とみなす
+                if (topEdgeY < DEADLINE_Y && speed < 1.0) {
                     hasViolator = true;
                     break;
                 }
@@ -340,11 +640,17 @@
 
         function triggerGameOver() {
             isGameOver = true;
-            Runner.stop(runner); 
-         ntById('final-score').innerText = `Score: ${score}`;
+            Runner.stop(runner);
+            playGameOverSound();
+            document.getElementById('final-score').innerText = `Score: ${score}`;
             document.getElementById('ui-layer').classList.add('show');
         }
 
+        /**
+         * =============================================
+         * 10. リスタート処理
+         * =============================================
+         */
         document.getElementById('retry-btn').addEventListener('click', () => {
             document.getElementById('ui-layer').classList.remove('show');
             resetGame();
@@ -352,189 +658,208 @@
 
         function resetGame() {
             Composite.remove(engine.world, activeBodies);
-            activeBodies = [];
-            mergeReservations = {};
+            activeBodies               = [];
+            mergeReservations          = {};
+            particles                  = []; // パーティクルもリセット
             deadlineViolationStartTime = null;
-
-            score = 0;
-            currentAnimalRank = getRandomSpawnRank();
-            nextAnimalRank = getRandomSpawnRank();
-            lastDropTime = 0;
-            isGameOver = false;
-
+            score                      = 0;
+            currentAnimalRank          = getRandomSpawnRank();
+            nextAnimalRank             = getRandomSpawnRank();
+            lastDropTime               = 0;
+            isGameOver                 = false;
             Runner.run(runner, engine);
             handleInputMove(CANVAS_WIDTH / 2);
         }
 
+        /**
+         * =============================================
+         * 11. 描画ループ
+         * =============================================
+         */
         function renderLoop() {
+            // --- 背景クリア ---
             ctx.fillStyle = '#fff';
             ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT - DICT_HEIGHT);
             ctx.fillStyle = '#f8f8f8';
             ctx.fillRect(0, CANVAS_HEIGHT - DICT_HEIGHT, CANVAS_WIDTH, DICT_HEIGHT);
 
+            // --- 状態更新 ---
             if (!isGameOver) checkGameOver();
             cleanUpReservations();
+            updateParticles(); // パーティクルの位置・透明度を更新
 
+            // --- 描画 ---
             drawWalls();
-      ne();
+            drawDeadline();
             drawActiveAnimals();
             drawInputGuideline();
+            drawParticles();  // どうぶつの上にパーティクルを重ねる
             drawUI();
 
-            gameLoopId = requestAnimationFrame(renderLoop);
+            requestAnimationFrame(renderLoop);
         }
 
+        // 壁・床の描画
         function drawWalls() {
             ctx.fillStyle = '#d4a97a';
-            const bodies = Composite.allBodies(engine.world);
-            for (let body of bodies) {
-                === 'wall') {
-                    const width = body.bounds.max.x - body.bounds.min.x;
-                    const height = body.bounds.max.y - body.bounds.min.y;
-                    ctx.beginPath();
-                    ctx.roundRect(
-                        body.position.x - width/2, body.position.y - height/2, 
-                             , height, 10 
-                    );
-                    ctx.fill();                 }
+            for (const body of Composite.allBodies(engine.world)) {
+                if (body.renderType !== 'wall') continue;
+                const w = body.bounds.max.x - body.bounds.min.x;
+                const h = body.bounds.max.y - body.bounds.min.y;
+                ctx.beginPath();
+                ctx.roundRect(body.position.x - w / 2, body.position.y - h / 2, w, h, 10);
+                ctx.fill();
             }
         }
 
-        f         rawDeadline() {
+        // デッドライン（赤の破線）と警告フラッシュの描画
+        function drawDeadline() {
             ctx.beginPath();
             ctx.moveTo(0, DEADLINE_Y);
-            ctx.lineTo(CANVADLINE_Y);
+            ctx.lineTo(CANVAS_WIDTH, DEADLINE_Y);
             ctx.strokeStyle = '#ff4d4d';
-            ctx.lineWidth = 2;
+            ctx.lineWidth   = 2;
             ctx.setLineDash([10, 5]);
             ctx.stroke();
             ctx.setLineDash([]);
-            
+
+            // デッドライン超過中は赤くフラッシュ
             if (deadlineViolationStartTime !== null && !isGameOver) {
-                const elapsed = Date.ViolationStartTime;
-                const alpha = Math.abs(Math.sin(elapsed / 150)) * 0.25;
+                const elapsed = Date.now() - deadlineViolationStartTime;
+                const alpha   = Math.abs(Math.sin(elapsed / 150)) * 0.25;
                 ctx.fillStyle = `rgba(255, 0, 0, ${alpha})`;
                 ctx.fillRect(0, 0, CANVAS_WIDTH, DEADLINE_Y);
             }
         }
 
-        utGuideline() {
+        // ガイドライン（青の縦破線）と次に落とすどうぶつの描画
+        function drawInputGuideline() {
             if (isGameOver) return;
+
             ctx.beginPath();
             ctx.moveTo(mouseX, DEADLINE_Y);
             ctx.lineTo(mouseX, CANVAS_HEIGHT - DICT_HEIGHT);
             ctx.strokeStyle = '#add8e6';
-            ctx.lineWidth = 2;
+            ctx.lineWidth   = 2;
             ctx.setLineDash([5, 5]);
             ctx.stroke();
             ctx.setLineDash([]);
 
-            const currentRankInfo = RANKS[currentAnimalRank];
-            const elapsedSinceDrop = Date.now() - lastDropTime;
-            const coolDownRatio = Math.max(0, DROP_COOLDOWN - elapsedSinceDrop) / DROP_COOLDOWN;
-            ctx.globalAlpha = coolDownRatio > 0 ? 0.3 : 0.7; 
-            drawSingleAnimalBody(mouseX, 40, currentRankInfo, 0);
-            ctx.globalAlpha = 1.0;
+            // クールダウン中は薄く、通常は少し半透明で表示
+            const elapsed       = Date.now() - lastDropTime;
+            const coolRatio     = Math.max(0, DROP_COOLDOWN - elapsed) / DROP_COOLDOWN;
+            ctx.globalAlpha     = coolRatio > 0 ? 0.3 : 0.7;
+            drawSingleAnimalBody(mouseX, 40, RANKS[currentAnimalRank], 0);
+            ctx.globalAlpha     = 1.0;
         }
 
+        // フィールド上の全どうぶつを描画
         function drawActiveAnimals() {
-            for (let body of activeBodies) {
-                if (body.renderType === 'animal') {
-                    const rankInfo = RANKS[body.customR                drawSingleAnimalBody(body.position.x, body.position.y, rankInfo, body.angle);
-                }
+            for (const body of activeBodies) {
+                drawSingleAnimalBody(body.position.x, body.position.y, RANKS[body.customRankId], body.angle);
             }
         }
 
+        // スコア・NEXT・図鑑UIの描画
         function drawUI() {
-            ctx.fillS        #333               ctx.font = 'bold 24px Arial';
-                 extAlign = 'l                  ctx.textBaseline = 'top';
-                  llText(`Score: ${score}`, 12, 12);
+            // スコア（左上）
+            ctx.fillStyle    = '#333';
+            ctx.font         = 'bold 24px Arial';
+            ctx.textAlign    = 'left';
+            ctx.textBaseline = 'top';
+            ctx.fillText(`Score: ${score}`, 12, 12);
 
-            const nextRank = RANKS[nextAnimalRank];
+            // NEXT（右上・丸枠の中に絵文字）
+            const nx = CANVAS_WIDTH - 45;
             ctx.beginPath();
-            ctx.arc(CANVAS_WIDTH - 45, 45, 32, 0, Math.PI * 2);
-            ctx.fillStyle = '#fff';
+            ctx.arc(nx, 45, 32, 0, Math.PI * 2);
+            ctx.fillStyle   = '#fff';
             ctx.fill();
             ctx.strokeStyle = '#333';
-            ctx.lineWidth = 2;
+            ctx.lineWidth   = 2;
+            ctx.stroke();
+            ctx.fillStyle    = '#333';
+            ctx.font         = 'bold 12px Arial';
+            ctx.textAlign    = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('NEXT', nx, 23);
+            ctx.font = '30px Arial';
+            ctx.fillText(RANKS[nextAnimalRank].emoji, nx, 53);
+
+            // 図鑑（画面下部）
+            const dictY = CANVAS_HEIGHT - DICT_HEIGHT;
+            ctx.strokeStyle = '#ccc';
+            ctx.lineWidth   = 2;
+            ctx.beginPath();
+            ctx.moveTo(0, dictY);
+            ctx.lineTo(CANVAS_WIDTH, dictY);
             ctx.stroke();
 
-            ctx.fillStyle = '#333';
-            ctx.font = 'bold 12px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText('NEXT', CANVAS_WIDTH - 45, 23);
-            
-            ctx.font = '30px Arial';
-            ctx.fillText(nextRank.emoji, CANVAS_WIDTH - 45, 53);
+            const step = (CANVAS_WIDTH - 20) / RANKS.length;
+            for (let i = 0; i < RANKS.length; i++) {
+                const rank = RANKS[i];
+                const cx   = 10 + step * i + step / 2;
 
-            const dictY = CANVAS_HEIGHT - DICT_HEIGHT;
-  x.strokeStyle = '#ccc';
-            ctx.lineWidth = 2;
-            ctx.beginPath();                     To(0, dictY);
-            ctx.lineTo(CANVAS_         ctY);
-            ctx.strok                  const totalRanks = RANKS.length;
-            const margin = 10;
-            const availableWidth = CANVAS_WIDTH - margin * 2;
-            const step = availableWidth / totalRanks;
-            
-            for (let i = 0; i < totalRanks; i++) {
-            nk = RANKS[i];
-                const cx = margin + step * i + step / 2;
-                
-                ctx.font = `24px Arial`;
-                ctx.textAlign = 'center';
+                ctx.font         = '24px Arial';
+                ctx.textAlign    = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillText(rank.emoji, cx, dictY + DICT_HEIGHT / 2 - 12);
-                
+
                 ctx.fillStyle = '#555';
-                ctx.fontx Arial';
-                ctx.fillText(rank.name, cx, dHEIGHT / 2 + 15);
-                
-                if (is - 1) {
+                ctx.font      = 'bold 11px Arial';
+                ctx.fillText(rank.name, cx, dictY + DICT_HEIGHT / 2 + 15);
+
+                if (i < RANKS.length - 1) {
                     ctx.fillStyle = '#aaa';
-        ctx.font = '12px Arial';
-                    ctx.fillText('►', cx + step+ DICT_HEIGHT / 2 - 12);
+                    ctx.font      = '12px Arial';
+                    ctx.fillText('►', cx + step / 2, dictY + DICT_HEIGHT / 2 - 12);
                 }
             }
         }
 
+        // どうぶつ1体を描画するヘルパー（背景円＋絵文字）
         function drawSingleAnimalBody(x, y, rankInfo, angle) {
             ctx.save();
             ctx.translate(x, y);
             ctx.rotate(angle);
 
+            // 背景色の円
             ctx.beginPath();
-            ctx.arc(0, 0, rankInfo.radius, 0, 2 *           ctx.fillStyle = rankInfo.color;
+            ctx.arc(0, 0, rankInfo.radius, 0, 2 * Math.PI);
+            ctx.fillStyle = rankInfo.color;
             ctx.fill();
-            
+
+            // 枠線
             ctx.strokeStyle = '#333';
-            ctx.lineWidth = 2;
+            ctx.lineWidth   = 2;
             ctx.stroke();
 
-            const fontSize = rankInfo.radius * 1.1; 
-            ctx.font = `${fontSize}px Arial`;
-            ctx.textAli       ctx.textBaseline = 'middle';
+            // 絵文字（中央に配置）
+            const fontSize = rankInfo.radius * 1.1;
+            ctx.font         = `${fontSize}px Arial`;
+            ctx.textAlign    = 'center';
+            ctx.textBaseline = 'middle';
             ctx.fillText(rankInfo.emoji, 0, fontSize * 0.05);
 
-            ctx.resto r e(;
+            ctx.restore();
         }
 
-        function cleanUpReservations ( ) 
-            const currentIds =new Set(activeBodies.map(b => b.d));
-            for (let id in mergeReservations) {
+        // 消えたボディの予約フラグを掃除する
+        function cleanUpReservations() {
+            const currentIds = new Set(activeBodies.map(b => b.id));
+            for (const id in mergeReservations) {
                 if (!currentIds.has(Number(id))) {
                     delete mergeReservations[id];
                 }
             }
         }
 
-        // ====== 変更点 ======
-        // Matter.jsのCDNからの読み込みタイミングズレによる白画面エラーを防ぐため
-        // `window.addEventListener('load', ...)` の中で初期化するように変更
-        window.addEventListener('load', () => {
-            initGame();
-        });
+        /**
+         * =============================================
+         * 12. 起動
+         * =============================================
+         */
+        window.addEventListener('load', initGame);
 
     </script>
 </body>
