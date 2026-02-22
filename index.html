@@ -13,17 +13,23 @@
         * {
             box-sizing: border-box;
             user-select: none;
+            /* テキスト選択禁止 */
             -webkit-user-select: none;
+            /* Safari用 */
             -webkit-touch-callout: none;
+            /* 長押しメニュー禁止 */
             -webkit-tap-highlight-color: transparent;
+            /* タップハイライト非表示 */
             margin: 0;
             padding: 0;
         }
 
         body {
+            /* 背景はわかりやすくグレーめに */
             background-color: #333;
             font-family: 'Helvetica Neue', Arial, sans-serif;
             touch-action: none;
+            /* スクロール防止 */
             display: flex;
             justify-content: center;
             align-items: center;
@@ -37,6 +43,7 @@
             height: 580px;
             background-color: #fff;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            /* 丸みをつける */
             border-radius: 8px;
             overflow: hidden;
         }
@@ -47,14 +54,15 @@
             height: 100%;
         }
 
-        /* UIオーバーレイ共通 */
-        .overlay {
+        /* ゲームオーバー用のオーバーレイ */
+        #ui-layer {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
             pointer-events: none;
+            /* 通常時はクリックなどを貫通させる */
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -67,35 +75,18 @@
             z-index: 10;
         }
 
-        .overlay.show {
+        /* ゲームオーバー時に付与するクラス */
+        #ui-layer.show {
             opacity: 1;
             visibility: visible;
             pointer-events: auto;
-        }
-
-        /* スタート画面を明るめにアレンジ */
-        #start-layer.show {
-            background: rgba(255, 240, 200, 0.95);
-            color: #333;
+            /* ボタンクリックを有効化 */
         }
 
         h1 {
             margin-bottom: 10px;
-            font-size: 30px;
-            text-align: center;
-            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.2);
-        }
-
-        #ui-layer h1 {
-            color: white;
+            font-size: 32px;
             text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
-        }
-
-        p {
-            font-size: 16px;
-            margin-bottom: 30px;
-            font-weight: bold;
-            color: #666;
         }
 
         #final-score {
@@ -122,686 +113,677 @@
             transform: translateY(6px);
             box-shadow: 0 0 0 #b39700;
         }
-
-        #start-btn {
-            background: #ffaa00;
-            box-shadow: 0 6px 0 #cc8800;
-            color: white;
-        }
-
-        #start-btn:active {
-            box-shadow: 0 0 0 #cc8800;
-        }
     </style>
 </head>
 
 <body>
     <div id="game-container">
+        <!-- Canvasの解像度は360x580基準にする (Retina対応する場合倍にするが今回はそのまま) -->
         <canvas id="gameCanvas" width="360" height="580"></canvas>
-
-        <!-- スタート画面 (BGMの初期化に必須のユーザアクションを得るため) -->
-        <div id="start-layer" class="overlay show">
-            <h1>どうぶつ合体パズル</h1>
-            <p>おなじどうぶつをくっつけよう！</p>
-            <button id="start-btn">ゲームスタート！♪</button>
-        </div>
-
-        <!-- ゲームオーバー画面 -->
-        <div id="ui-layer" class="overlay">
+        <div id="ui-layer">
             <h1>ゲームオーバー</h1>
             <div id="final-score">Score: 0</div>
-            <button id="retry-btn">もう１かい遊ぶ！</button>
+            <button id="retry-btn">リトライ</button>
         </div>
     </div>
 
     <script>
         /**
-          どうぶつ合体パズル v1.1
+         * どうぶつ合体パズル v1.0
+         * 
+         * =========================================
+         * 1. 設定エリア（定数）
+         * =========================================
          */
-
-        try {
-            // エラー捕捉用のグローバルハンドラ
-            window.addEventListener('error', function(e) {
-                console.error('JSエラー:', e.message);
-                if (e.message.includes('Matter is not defined')) {
-                    alert('エラー: 物理エンジン(Matter.js)の読み込みに失敗しました。インターネット接続を確認してリロードしてください。');
-                }
-            });
-
-            /**
-            ====================================
-             * オーディオシステム (Web Audio API)
-             * =========================================
-             */
-            const AudioSys = {
-               ctx: null,
-                isPlaying: false,
-                bgmTimeout: null,
-
-               init: function() {
-                      {
-                        const Au oContext = window.AudioContext || window.webkitAudio text;
-                        if (!this.ctx && AudioContext) {
-                            this.ctx = new AudioContext();
-                        }
-                        if (this.ctx && this.ctx.state === 'suspended') {
-                            this.ctx.resume();
-                        }
-                    } catch (e) {
-                        console.error("Web Audio API の初期化エラー:", e);
-                    }
-                },
-
-                playDrop: function() {
-                    try {
-                        i            return;
-                            osc = this.ctx.createOsc                                 const gai            reateGain();
-                                 = 'sine';
-                        osc.freque         lueAtTime(6         ctx.currentTime);
-                        os         cy.exponentialRampToValueAtTime(300, this.ctx.currentTime + 0.1);
-                        
-                        gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
-                        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.1);
-                        
-                        osc.connect(gain);
-                        gain.connect(this.ctx.destination);
-                osc.start();
-                        osc.stop(this.ctx.currentTime + 0.1);
-                    } catch (e) { console.error("playDrop error", e); }
-                },
-
-                playMerge: f        rank                          try {
-                              his.ctx) re                              const osc = this.ctx.cr         lator();
-                        const gain = this.ctx.createGain();
-                        osc.type = 'triangle';
-                        const baseFreq = 440 * Math.pow(1.059463, rankId * 2); 
-                        osc.frequency.setValueAtTime(baseFreq, this.ctx.currentTime);
-                        osc.frequency.setValueAtTime(baseFreq * 1.5, this.ctx.currentTime + 0.15);
-                        
-                        gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
-                        gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.3)
-                        
-                       osc.connect(gain);
-                       gain.connect(thi.ctx.destination);
-                        osc.start();
-                        osc.stop(this.ctx.currentTime + 0.3);
-                    } catch (e) { console.error("playMrge error", e); }
-               },
-
-                playGamOver: function() {
-                   try {
-                        if (!this.ctx) return;
-                        const osc = this.ctx.createOscillator();
-                        const gain = this.ctx.createGain();
-                       osc.tpe = 'sawtooth';
-                       osc.frequency.setValeAtTime(300, this.ctx.currentTime);
-                        osc.frequency.linearRampToValueAtTime(100, this.ctx.currentTime + 1.2);
-                        
-                        gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
-                        gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 1.2);
-                        
-                        osc.connect(gain);
-                        gain.connect(this.ctx.destination);
-                        osc.start();
-                        osc.stop(this.ctx.currentTime + 1.2);
-                      catch(e) { console.error("playGameOver erro         
-                                    startBGM: function() {
-                    if (!this.ctx || this.isPlaying) return;
-                    this.isPlaying = true;
-                    
-                    const notes = [
-                        { f: 392.00, d: 2 }, { f: 329.63, d: 2 }, { f: 392 { f: 329.63, d: 2 },
-                        { f: 392.00, d: 1 }, { f: 440.00, d: 1 }, { f: 392.00, d: 1 }, { f: 349.23, d: 1 }, { f: 329.63, d: 4 },
-                        { f: 349.23, d: 2 }, { f: 293.66, d: 2 }, { f: 349.23, d: 2 }, { f: 293.66, d: 2 },
-                        { f: 349.23, d: 1 }, { f: 392.00, d: 1 }, { f: 349.23, d: 1 }, { f: 329.63, d: 1 }, { f: 261.63, d: 4 }
-                    ];
-                    
-                    let noteIndex = 0;
-                    const tempo = 130; 
-                    constbaseTick = (60 / tempo) / 2; 
-                    
-                   const playNextNote = () => {
-                        try {
-                            if (!this.isPlaying) return;
-                            
-                            const note = notes[noteIndex];
-                            if (note.f > 0) {
-                                const osc = this.ctx.createOscillator();
-                                const        this         teGain();
-                                os         'square';                                  osc.frequency.value          
-                                
-                                gain.gain.setValueAtTime(0.04, this.ctx.currentTime);
-                                gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + baseTick * note.d * 0.9);
-                                
-                                osc.connect(gain);
-                    gain.connect(this.ctx.destination);
-                                
-                                osc.start(this.ctx.currentTime);
-                                osc.stop(tentTime + baseTick * note.d);
-                            }
-                            
-                            noteIndex = (noteIndex + 1) % notes.length;
-                            this.bgmTimeout = setTimeout(playNextNote, baseTick * note.d * 1000);
-                        } catch(e) {
-                            console.error("BGM error", e);
-                   s.isPlaying = false;
-                        }
-                    };
-                    
-                    playNextNote();
-                },
-
-                stopBGM: function() {
-                    this.isPlaying = false;
-                    if (this.bgmTimeout) {
-                        clearTimeout(this.bgmTimeout);
-                        this.bgmTimeout = null;
-                    }
-                }
-            };
-
-
-            /**
-             * =========================================
-             * ゲーム定数・変数
-             * =========================================
-             */
-            const CANVAS_WIDTH = 360;
-            const CANVAS_HEIGHT = 580;
-            const WALL_THICKNESS = 20;
-
-            const DEADLINE_Y = 80;
-            const GAME_OVER_TIME = 1500; 
-            const DROP_COOLDOWN = 600;
-
-            const RANKS = [
-                {  'たまご', emoji: '🥚', radius: 25, score: 10,  color: '#fff8dc' },
-                { id: 1, name: 'ひよこ', emoji: '🐥', radius: 36, score: 30,  color: '#fff3a0' },
-                { id: 2, name: 'ねこ',   emoji: '🐱', radius: 48, score: 60,  color: '#ffd6a5' },
-                       , na            emoji: '🐶', radius: 62, score: 100, colo         a0' },
-                { id: 4, name: 'パンダ', emoji: '🐼', radiu         ore: 150, color: '#e8e8e8' },
-                { id: 5, name: 'ライオン', emoji: '🦁', radius: 92, score: 300, color: '#ffd700' }
-            ];
-
-            const SPAWN_WEIGHTS = [
-                { rank: 0, weight: 50 },
-                { rank: 1, weight: 30 },
-                { rank: 2, weight: 20 }
-            ];
-
-            // Matter.jsの展開 (遅延評価してエラーを防ぐ)
-            let Engine, Runner, Bodies, Composite, Events;
-            
-            let engine;
-            let runner;
-            let canvas;
-            let ctx;
-
-            let score = 0;
-            let currentAnimalRank = 0;
-            let nextAnimalRank = 0;
-            let 
-            let mouseX = CANVAS_WIDTH / 2;
-            let lastDropTime = 0;
-
-            let activeBodies = [];
-            let mergeReservations = {};
-            let deadlineViolationStartTime = null;
-
-            const DICT_HEIGHT = 100;
-            let gameInitialized = false;
-
-            /**
-             * =========================================
-             * 画面UIと初期化処理
-             * =========================================
-             */
-
-            document.addEventListener('DOMContentLoaded', () => {
-                const startBtn = document.getElementById('start-btn');
-                const retryBtn = document.getElementById('retry-btn');
-                
-                if (startBtn) {
-                    startBtn.addEventListener('click', () => {
-                        console.log("Start button clicked");
-                        try {
-                            document.getElementById('start-layer').classList.remove('show');
-                            
-                            AudioSys.init();
-                            AudioSys.startBGM();
-
-                            if (!gameInitialized) {
-                                initGame();
-                  meInitialized = true;
-                            } else {
-                                resetGame();
-                            }
-                        } catch(e) {
-                            console.error("ゲーム開始エラー:", e);
-                            alert("ゲームの起動に失敗しました。詳細: " + e.message);
-                        }
-                    });
-                         console.error("開始ボタンが見つかりません。");
-                }
-
-                if (retryBtn) {
-                    retryBtn.addEventListener('click', () => {
-                        document.getElementById('ui-layer').classList.remove('show');
-                        resetGame();
-                    });
-                }
-            });
-
-
-            function initGame() {
-                if (typeof         == 'undefined') {
-                    throw          ("Matter.jsが読み込まれていません。CDNと通信できるか確認してください。");
-                }
-                Engine = Matter.Engine;
-        er = Matter.Runner;
-                Bodies = Matter.Bodies;
-                Composite = Matter.Composite;
-                Events = Matter.Events;
-
-                canvas = document.getElementById('gameCanvas');
-                if (!canvas) throw new Error("Canvas要素が見つかりません。");
-                
-    = canvas.getContext('2d');
-
-                engine = Engine.create();
-                engine.gravity.y = 1.2;
-
-                const floorY = CANVAS_HEIGHT - DICT_HEIGHT;
-                const floor = Bodies.rectangle(
-                    CANVAS_WI              floorY + WALL_THICKNESS / 2, 
-                    CANVAS_WIDTH, 
-                    WALL_THICKNESS, 
-                    { isStatic: true, renderType: 'wall' }
-                );
-
-                const leftWall = Bodies.rectangle(
-                    WALL_THICKNESS / 2, 
-                    floorY / 2, 
-                    WALL_THICKNESS, 
-                    floorY * 2, 
-                    { isStatic: true, renderType: 'wall' }
-                );
-
-                const rightWall = Bodies.rectangle(
-                    CANVAS_WIDTH - WALL_THICKNESS / 2, 
-                    floorY / 2, 
-                    WALL_THICKNESS, 
-                    floorY * 2, 
-                    { isStatic: true, renderType: 'wall' }
-                );
-
-                Composite.add(engine.world, [floor, leftWall, rightWall]);
-
-                currentAnimalRank = getRandomSpawnRank();
-                nextAnimalRank = getRandomSpawnRan          setupEvents();
-
-                runner = Runner.create();
-                Runner.run(runner, engine);
-
-                requestAnimationFrame(renderLoop);
-            }
-
-               ctio         omSpawnRank() {
-                const totalW         PAWN_WEIGHTS.         um, item) => sum + item.weight, 0);
-                 et random = Math.random() * totalWeight;
-                for (let i = 0; i < SPAWN_WEIGHTS.length; i++) {
-                    random -= SPAWN_WEIGHTS[i].weight;
-                    if (random <= 0) return SPAWN_WEIGHTS[i].rank;
-                }
-                return 0;
-            }
-
-            function createAnimalBody(x, y, rankId) {
-                const rankInfo = RANKS[rankId];
-                const body = Bodies.circle(x, y, rankInfo.radius, {
-                    restitution: 0.2, 
-                    friction: 0.5, 
-                    density: 0.001 * (rankId + 1),
-                    customRankId: rankId,
-                    renderType: 'animal'
-                });
-                Composite.add(engine.w
-                activeBodies.push(body);
-                return body;
-                                 on handleInputMove(x) {
-                if (         r) return;
-                         rentRadius = RANKS[currentAnimalRank].radius                  const minX = WALL_THICKNESS + currentRadius;
-                const maxX = CANVAS_WIDTH - WALL_THICKNESS - currentRadius;
-                mouseX = Math.max(minX, Math.min(x, maxX));
-            }
-
-       n handleDrop() {
-                if (isGameOver) return;
-                
-                const now = Date.now();
-                if (now - lastDropTime < DROP_COOLDOWN) return;
-
-                AudioSys.playDrop();
-                createAnimalBody(mouseX, 40, currentAnimalRank);
-
-                currentAnimalRank = nextAnimalRank;
-                nextAnimalRank = getRand);
-                handleInputMove(mouseX);
-
-          opTime = now;
-            }
-
-            function setupE              canvas.addEventListener('mousemove', (e) => {         const rect = canvas.getBoundingClientRect();
-                    ove(e.clientX - rect.left);
-                });
-                canvas.addEventListener('mousedown', (e) => {
-                    if (e.button === 0) handleDrop();
-                });
-
-                canvas.addEventListener('touchmove', (e) => {
-                    e.preventDefault();
-           (!e.touches || e.touches.length === 0) return;
-                    const rect = canvas.getBoundingClientRect();
-                    handleInputMove(e.touches[0].clientX - rect.left);
-                }, { passive: false });
-                
-                canvas.addEventListener('touchend', (e) =>   e.preventDefault();
-                    handleDrop();
-                }, { passive: false });
-
-                Events . onengine, 'collisionStart', handleCollision);
-             }
-
-            function handeCollision(event) {
-               if (isGameOver) return;
-                const pairs = event.pairs;
-
-                let bodiesToRemove = [];
-                let bodiesToAdd = [];
-                let mergedPitches = [];
-
-                for (let i = 0; i < pairs.length; i++) {
-                    const bodyA = pairs[i].bodyA;
-                    const bodyB = pairs[i].bodyB;
-
-                    if (bodyA.renderType !== 'animal' || bodyB.renderType !== 'animal') continue;
-
-                    if (bodyA.customRankId === bonkId) {
-                        const rankId = bodyA.customRankId;
-                        if (rankId >= RANKS.length - 1) continue;
-                        if (mergeReservations[bodyA.id] || mergeReservations[bodyB.id]) continue;
-
-                        mergeReservations[bodyA.id] = true;
-                        mergeReservations[bodyB.id] = true;
-
-                        score += RANKS[rankId].score;
-
-                        bodiesToRemove.push(bodyA, bodyB);
-
-                        const midX = (bodyA.position.x + bodyB.position                     const midY = (bodyA.position.y + bodyB.position.y) / 2;
-
-                        bodiesToAdd.push({
-                            x: midX,
-                            y: midY,
-                            rankId: rankId + 1
-                        });
-
-                        mergedPitches.push(rankId + 1);
-                    }
-                }
-
-                if (mergedPitches.length > 0) {
-                    const highestRax(...mergedPitches);
-                    AudioSys.playMerge(highestRank);
-                }
-
-                if (bodiesToRemove.length > 0) {
-                    Composite.remove(engine.world, bodiesToRemove);
-                    const removeIds = new Set(bodieTb => b.id));
-                    activeBodies = activeBodies.filter(b => !removeIds.has(b.id));
-
-                    bodiesToAdd.forEach(data => {
-                        const newBody = createAnimalBody(data.x, data.y, data.rankId);
-                        Matter.Body.setVelocity(newBody, {
-                            x: (Math.random() - 0.5) * 2,
-                            y: (Math.random() - 0.5) * 2
-                        });
-                    });
-                }
-            }
-
-            function checkGameOver() {
-                if (isGameOver) return;
-                let hasViolator = false;
-                
-                for (let body of activeBodies) {
-                    const radius = RANKS[body.customRankId].radius;
-                    const topEdgeY = body.position.y - radius;
-                    const velocityMag = Math.sqrt(body.velocity.x ** 2city.y ** 2);
-                    
-                    if (topEdgeY < DEADLINE_Y && velocityMag < 1.0) {
-                        hasViolator = true;
-                        break;
-                    }
-                }
-
-                if (hasViolator) {
-                    if (deadlineViolationStartTime === null) {
-                        deadlineViolationStartTime = Date.now();
-                    } else if (Date.now() - deadlineViolationStartTime > GAME_OVER_TIME) {
-                        triggerG                   }
-                } else {
-                    deadlineViolationStartTime = null;
-                }
-            }
-
-            function triggerGameOver() {
-                isGameOver = true;
-        er.stop(runner); 
-                
-                AudioSys.stopBGM();
-                AudioSys.playGameOver();
-                
-                document.getElementById('final-score').innerText = `Score: ${score}`;
-                document.getElementById('ui-layer').classList.add('show');
-            }
-
-            function resetGame() {
-                Composite.remove(engine.world, activeBodies);
-                activeBodies = [];
-                mergeReservations = {};
-           eViolationStartTime = null;
-
-                score = 0;
-                currentAnimalRank = getRandomSpawnRank();
-                nextAnimalRank = getRandomSpawnRank();
-    DropTime = 0;
-                isGameOver = false;
-
-                Runner.run(runner, engine);
-                handleInputMove(CANVAS_WIDTH / 2);
-                
-                AudioSys.startBGM(); 
-            }
-
-            function renderLoop() {
-                ctx.fillStyle = '#fff';
-                ctx.fillRectDTH, CANVAS_HEIGHT - DICT_HEIGHT);
-                ctx.fillStyle = '#f8f8f8';
-                ctx.fillRect(0, CANVAS_HEIGHT - DICT_HEIGHT, CANVAS_WIDTH, DICT_HEIGHT);
-
-                if (ckGameOver();
-                cleanUpReservations();
-
-                drawWalls();
-                drawDeadline();
-                drawActiveAnimals();
-                drawInputGuideline();
-                drawUI();
-
-                requestAnimationFrame(renderLoop);
-            }
-
-            function drawWalls() {
-                ctx.fillStyle = '#d4a97a'; 
-                const bodies = Composite.allBodies(engine.world);
-                for (let body of bodies) {
-                    if (body.renderType === 'wall') {
-                        const width = body.bounds.max.x - body.bounds.min.x;
-                        const height = body.bounds.max.y - bon.y;
-                        ctx.beginPath();
-                        ctx.roundRect(
-                            body.position.x - width/2, 
-                            body.position.y - height/2, 
-                            width, 
-                            height, 
-                            10
-                        );
-                        ctx.fill();
-                    }
-                }
-            }
-
-            function drawDeadline() {
-                ctx.beginPath();
-                ctx.moveTo(0, DEADLINE_Y);
-                ctx.lineTo(CANVAS_WIDTH, DEADLINE_Y);
-                ctx.strokeStyle = '#ff4d4d'; 
-                ctx.lineWidth = 2;
-                ctx.setLineDash([10, 5]); 
-                ctx.stroke();
-                ctx.setLineDash([]); 
-                
-                if (de        olat         ime !== null && !isGameOver) {
-                      nst elapsed = Date         deadlineViolationStartTime;
-                          alpha = Math.abs(Math.sin(elapsed / 150)) * 0.25;
-         ctx.fillStyle = `rgba(255, 0, 0, ${alpha})`;
-                    ctx.fillRect(0, 0, CANVAS_WIDTH, DEADLINE_Y);
-                }
-            }
-
-            function drawInputGuideline() {
-                if (isGameOver) return;
-                ctx.beginPath();
-                ctx.moveTo(mouseX, DEADLINE_Y);
-                ctx.lineTo(mouseX, CANVAS_HEIGHT - DICT_HEIGHT);
-                ctx.strokeStyle = '#add8e6';
-                ctx.lineWidth = 2;
-                ctx.setLineDash([5, 5]);
-                ctx.stroke();
-                ctx.setLineDash([]);
-
-                const currentRankInfo = RANKS[currentAnimalRank];
-                const elapsedSinceDrop = Date.now() - lastDropTime;
-                const coolDownRatio = Math.max(0, DROP_COOLDOWN - elapsedSinceDrop) / DROP_COOLDOWN;
-                ctx.globalAlpha = coolDownRatio > 0 ? 0.3 : 0.7; 
-                
-                drawSingleAnimalBody(mouseX, 40, currentRankInfo, 0);
-                ctx.globalAlpha = 1.0;
-            }
-
-            function drawActiveAnimals() {
-                for (let body of activeBodies) {
-                    if (body.renderType === 'animal') {
-                        const rankInfo = RANKS[body.customRankId];
-                        drawSingleAnimalBody(body.position.x, body.position.y, rankInfo, body.angle);
-                    }
-                }
-            }
-
-            function drawUI() {
-                ctx.fillStyle = '#333';
-                ctx.font = 'bold 24px Arial';
-                ctx.textAlign = 'left';
-                ctx.textBaseline = 'top';
-                ctx.fillText(`Score: ${score}`, 12, 12);
-
-                const nextRank = RANKS[nextAnimalRank];
-                ctx.beginPath();
-                ctx.arc(CANVAS_WIDTH - 45, 45, 32, 0, Math.PI * 2);
-                ctx.fillStyle = '#fff';
-                ctx.fill();
-                ctx.strokeStyle = '#333';
-                ctx.lineWidth = 2;
-                ctx.stroke();
-
-                ctx.fillStyle = '#333';
-                ctx.font = 'bold 12px Arial';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText('NEXT', CANVAS_WIDTH - 45, 23);
-                
-                ctx.font = '30px Arial';
-                ctx.fillText(nextRank.emoji, CANVAS_WIDTH - 45, 53);
-
-                const dictY = CANVAS_HEIGHT - DICT_HEIGHT;
-                ctx.strokeStyle = '#ccc';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.moveTo(0, dictY);
-                ctx.lineTo(CANVAS_WIDTH, dictY);
-                ctx.stroke();
-
-                const totalRanks = RANKS.length;
-                const margin = 10;
-                const availableWidth = CANVAS_WIDTH - margin * 2;
-                const step = availableWidth / totalRanks;
-                
-                for (let i = 0; i < totalRanks; i++) {
-                    const rank = RANKS[i];
-                    const cx = margin + step * i + step / 2;
-                    
-                    ctx.font = `24px Arial`;
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillText(rank.emoji, cx, dictY + DICT_HEIGHT / 2 - 12);
-                    
-                    ctx.fillStyle = '#555';
-                    ctx.font = 'bold 11px Arial';
-                    ctx.fillText(rank.name, cx, dictY + DICT_HEIGHT / 2 + 15);
-                    
-                    if (i < totalRanks - 1) {
-                        ctx.fillStyle = '#aaa';
-                        ctx.font = '12px Arial';
-                        ctx.fillText('►', cx + step / 2, dictY + DICT_HEIGHT / 2 - 12);
-                    }
-                }
-            }
-
-            function drawSingleAnimalBody(x, y, rankInfo, angle) {
-                ctx.save();
-                ctx.translate(x, y);
-                ctx.rotate(angle);
-
-                ctx.beginPath();
-                ctx.arc(0, 0, rankInfo.radius, 0, 2 * Math.PI);
-                ctx.fillStyle = rankInfo.color;
-                ctx.fill();
-                
-                ctx.strokeStyle = '#333';
-                ctx.lineWidth = 2;
-                ctx.stroke();
-
-                const fontSize = rankInfo.radius * 1.1; 
-                ctx.font = `${fontSize}px Arial`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(rankInfo.emoji, 0, fontSize * 0.05);
-
-                ctx.restore();
-            }
-
-            function cleanUpReservations() {
-                const currentIds = new Set(activeBodies.map(b => b.id));
-                for (let id in mergeReservations) {
-                    if (!currentIds.has(Number(id))) {
-                        delete mergeReservations[id];
-                    }
-                }
-            }
-        } catch (e) {
-            console.error("Critical error in main block:", e);
+        const CANVAS_WIDTH = 360;
+        const CANVAS_HEIGHT = 580;
+        // 壁の厚さ
+        const WALL_THICKNESS = 20;
+
+        // デッドラインY座標 (このラインを超えると危険)
+        const DEADLINE_Y = 80;
+        // コリジョン判定などで画面上部とみなすY基準
+        const GAME_OVER_TIME = 1500; // ms
+
+        // 落下クールダウン(ms) 連続落下防止
+        const DROP_COOLDOWN = 600;
+
+        // ランク定義 (0〜5の6段階)
+        const RANKS = [
+            { id: 0, name: 'たまご', emoji: '🥚', radius: 25, score: 10, color: '#fff8dc' },
+            { id: 1, name: 'ひよこ', emoji: '🐥', radius: 36, score: 30, color: '#fff3a0' },
+            { id: 2, name: 'ねこ', emoji: '🐱', radius: 48, score: 60, color: '#ffd6a5' },
+            { id: 3, name: 'いぬ', emoji: '🐶', radius: 62, score: 100, color: '#ffc8a0' },
+            { id: 4, name: 'パンダ', emoji: '🐼', radius: 76, score: 150, color: '#e8e8e8' },
+            { id: 5, name: 'ライオン', emoji: '🦁', radius: 92, score: 300, color: '#ffd700' }
+        ];
+
+        // スポーン時の重み（確率の目安）
+        const SPAWN_WEIGHTS = [
+            { rank: 0, weight: 50 }, // 最も出やすい
+            { rank: 1, weight: 30 },
+            { rank: 2, weight: 20 }  // 最も出にくい
+        ];
+
+        // Matter.jsのモジュールをプロパティとして展開
+        const Engine = Matter.Engine,
+            Runner = Matter.Runner,
+            Bodies = Matter.Bodies,
+            Composite = Matter.Composite,
+            Events = Matter.Events;
+
+        /**
+         * =========================================
+         * 2. ゲーム変数
+         * =========================================
+         */
+        let engine;
+        let runner;
+        let canvas;
+        let ctx;
+
+        let score = 0;
+        let currentAnimalRank = 0;
+        let nextAnimalRank = 0;
+        let isGameOver = false;
+
+        // 操作用のX座標 (ガイドラインのX)
+        let mouseX = CANVAS_WIDTH / 2;
+        // 最後に落下させた時間
+        let lastDropTime = 0;
+
+        // 描画・判定用に現在配置されている「どうぶつ」一覧を管理
+        let activeBodies = [];
+
+        // 合体処理中の複数回実行防止フラグ (二重合体防止)
+        let mergeReservations = {};
+
+        // デッドライン越えが始まった時刻
+        let deadlineViolationStartTime = null;
+
+        // 画面下部の図鑑エリアの高さ
+        const DICT_HEIGHT = 100;
+
+        /**
+         * =========================================
+         * 3. 初期化関数
+         * =========================================
+         */
+        function initGame() {
+            canvas = document.getElementById('gameCanvas');
+            ctx = canvas.getContext('2d');
+
+            // Matter.js エンジンの初期化
+            engine = Engine.create();
+            // 重力を少しだけ強くしてパズル感を出す
+            engine.gravity.y = 1.2;
+
+            // 容器（壁・床）の作成
+            // =========================
+            // 壁と床を作る位置は中心座標を指定する点に注意
+            // 床: x=幅の半分、y=キャンバスの高さ - 図鑑の高さ - 床の厚さの半分
+            const floorY = CANVAS_HEIGHT - DICT_HEIGHT;
+            const floor = Bodies.rectangle(
+                CANVAS_WIDTH / 2,
+                floorY + WALL_THICKNESS / 2,
+                CANVAS_WIDTH,
+                WALL_THICKNESS,
+                { isStatic: true, renderType: 'wall' }
+            );
+
+            // 左壁
+            const leftWall = Bodies.rectangle(
+                WALL_THICKNESS / 2,
+                floorY / 2,
+                WALL_THICKNESS,
+                floorY * 2,
+                { isStatic: true, renderType: 'wall' }
+            );
+
+            // 右壁
+            const rightWall = Bodies.rectangle(
+                CANVAS_WIDTH - WALL_THICKNESS / 2,
+                floorY / 2,
+                WALL_THICKNESS,
+                floorY * 2,
+                { isStatic: true, renderType: 'wall' }
+            );
+
+            // Worldに追加
+            Composite.add(engine.world, [floor, leftWall, rightWall]);
+
+            // 最初に出現するどうぶつを抽選
+            currentAnimalRank = getRandomSpawnRank();
+            nextAnimalRank = getRandomSpawnRank();
+
+            // イベントの設定（マウス・タッチ・衝突）
+            setupEvents();
+
+            // 物理エンジンの実行
+            runner = Runner.create();
+            Runner.run(runner, engine);
+
+            // 描画ループ開始
+            requestAnimationFrame(renderLoop);
         }
+
+        /**
+         * =========================================
+         * 4. スポーン関数
+         * =========================================
+         */
+        function getRandomSpawnRank() {
+            // 重みに従ってランダムに0〜2を抽選
+            const totalWeight = SPAWN_WEIGHTS.reduce((sum, item) => sum + item.weight, 0);
+            let random = Math.random() * totalWeight;
+
+            for (let i = 0; i < SPAWN_WEIGHTS.length; i++) {
+                random -= SPAWN_WEIGHTS[i].weight;
+                if (random <= 0) {
+                    return SPAWN_WEIGHTS[i].rank;
+                }
+            }
+            return 0; // フェールセーフ
+        }
+
+        // 物理エンティティ(丸)の作成関数
+        function createAnimalBody(x, y, rankId) {
+            const rankInfo = RANKS[rankId];
+            const body = Bodies.circle(x, y, rankInfo.radius, {
+                // 跳ね返り係数 (0.2くらいで自然に転がる)
+                restitution: 0.2,
+                // 摩擦係数
+                friction: 0.5,
+                // 密度 (ランクが上がる=大きいほど重くする)
+                density: 0.001 * (rankId + 1),
+                // 後で描画・合体判定に使うカスタムプロパティ
+                customRankId: rankId,
+                renderType: 'animal'
+            });
+            // 物理ワールドと独自配列の両方に追加
+            Composite.add(engine.world, body);
+            activeBodies.push(body);
+            return body;
+        }
+
+        /**
+         * =========================================
+         * 5. 落下処理
+         * =========================================
+         */
+        // 操作位置の更新
+        function handleInputMove(x) {
+            if (isGameOver) return;
+            // 容器からはみ出さないよう(壁厚さ+動物半径)でクランプする
+            const currentRadius = RANKS[currentAnimalRank].radius;
+            const minX = WALL_THICKNESS + currentRadius;
+            const maxX = CANVAS_WIDTH - WALL_THICKNESS - currentRadius;
+
+            // xが範囲内に収まるように制限
+            mouseX = Math.max(minX, Math.min(x, maxX));
+        }
+
+        // クリック/タップでの落下
+        function handleDrop() {
+            if (isGameOver) return;
+
+            const now = Date.now();
+            // クールダウンチェック、まだなら何もしない
+            if (now - lastDropTime < DROP_COOLDOWN) return;
+
+            // どうぶつを落下 (Y=40付近から)
+            createAnimalBody(mouseX, 40, currentAnimalRank);
+
+            // current を next に更新し、next を再抽選
+            currentAnimalRank = nextAnimalRank;
+            nextAnimalRank = getRandomSpawnRank();
+
+            // クランプ再計算 (次の動物の半径が変わる可能性があるため)
+            handleInputMove(mouseX);
+
+            lastDropTime = now;
+        }
+
+        // イベントリスナーの登録
+        function setupEvents() {
+            // -- PC --
+            canvas.addEventListener('mousemove', (e) => {
+                const rect = canvas.getBoundingClientRect();
+                handleInputMove(e.clientX - rect.left);
+            });
+            canvas.addEventListener('mousedown', (e) => {
+                if (e.button === 0) handleDrop(); // 左クリックのみ
+            });
+
+            // -- iPad / スマホ --
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault(); // スクロール等のデフォルト動作を防止
+                const rect = canvas.getBoundingClientRect();
+                const touch = e.touches[0];
+                handleInputMove(touch.clientX - rect.left);
+            }, { passive: false });
+
+            canvas.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                handleDrop();
+            }, { passive: false });
+
+            // Matter.js の衝突イベント
+            Events.on(engine, 'collisionStart', handleCollision);
+        }
+
+        /**
+         * =========================================
+         * 6. 合体処理
+         * =========================================
+         */
+        function handleCollision(event) {
+            if (isGameOver) return;
+            const pairs = event.pairs;
+
+            let bodiesToRemove = [];
+            let bodiesToAdd = [];
+
+            // すべての衝突ペアをチェック
+            for (let i = 0; i < pairs.length; i++) {
+                const bodyA = pairs[i].bodyA;
+                const bodyB = pairs[i].bodyB;
+
+                // 動物同士であるか確認
+                if (bodyA.renderType !== 'animal' || bodyB.renderType !== 'animal') continue;
+
+                // ランクが同じか確認
+                if (bodyA.customRankId === bodyB.customRankId) {
+                    const rankId = bodyA.customRankId;
+
+                    // ライオン(5)は最終形態のため合体しない
+                    if (rankId >= RANKS.length - 1) continue;
+
+                    // 予約済みフラグのチェック（二重合体防止）
+                    if (mergeReservations[bodyA.id] || mergeReservations[bodyB.id]) continue;
+
+                    // 予約フラグを立てる（他のペアで合体しないように）
+                    mergeReservations[bodyA.id] = true;
+                    mergeReservations[bodyB.id] = true;
+
+                    // スコア加算
+                    score += RANKS[rankId].score;
+
+                    // 古い2つを削除対象に
+                    bodiesToRemove.push(bodyA, bodyB);
+
+                    // 新しい生成位置（2つの中心点の中点）
+                    const midX = (bodyA.position.x + bodyB.position.x) / 2;
+                    const midY = (bodyA.position.y + bodyB.position.y) / 2;
+
+                    // 次のランクの動物の生成情報を記録
+                    bodiesToAdd.push({
+                        x: midX,
+                        y: midY,
+                        rankId: rankId + 1
+                    });
+                }
+            }
+
+            // ループを抜けた後、まとめてワールド更新
+            if (bodiesToRemove.length > 0) {
+                // Physics World から削除
+                Composite.remove(engine.world, bodiesToRemove);
+
+                // activeBodies 配列からも削除
+                const removeIds = new Set(bodiesToRemove.map(b => b.id));
+                activeBodies = activeBodies.filter(b => !removeIds.has(b.id));
+
+                // 新しいどうぶつを追加
+                bodiesToAdd.forEach(data => {
+                    const newBody = createAnimalBody(data.x, data.y, data.rankId);
+
+                    // 自然に動かすために少しの速度(ランダム方向)を与える
+                    // x, yとも -1〜1 の速度
+                    Matter.Body.setVelocity(newBody, {
+                        x: (Math.random() - 0.5) * 2,
+                        y: (Math.random() - 0.5) * 2
+                    });
+                });
+            }
+        }
+
+        /**
+         * =========================================
+         * 7. ゲームオーバー処理
+         * =========================================
+         */
+        function checkGameOver() {
+            if (isGameOver) return;
+
+            let hasViolator = false;
+
+            // キャンバスは下に行くほどYが大きい。
+            // したがって、上(Y=0側)の赤い線を越える = Y座標が小さい を判定する
+            for (let body of activeBodies) {
+                const radius = RANKS[body.customRankId].radius;
+                // オブジェクトの上端がデッドラインを越えているか
+                const topEdgeY = body.position.y - radius;
+
+                // 落下中のものはY速度や位置などを少し緩く判定して即死を避けるのが一般的
+                // 完全にデッドラインより上で、かつ大体止まっているものを違反とみなす
+                // 速度が1.0未満などで静止しているとみなせるかチェック
+                const velocityMag = Math.sqrt(body.velocity.x ** 2 + body.velocity.y ** 2);
+
+                // デッドライン(80)未満にいて、速度が十分に小さい場合
+                if (topEdgeY < DEADLINE_Y && velocityMag < 1.0) {
+                    hasViolator = true;
+                    break;
+                }
+            }
+
+            // 違反者が居た場合
+            if (hasViolator) {
+                if (deadlineViolationStartTime === null) {
+                    // 初めて超えたらタイムスタンプを記録
+                    deadlineViolationStartTime = Date.now();
+                } else {
+                    // 1500ms(1.5秒) 連続で超え続けたか？
+                    if (Date.now() - deadlineViolationStartTime > GAME_OVER_TIME) {
+                        triggerGameOver();
+                    }
+                }
+            } else {
+                // 違反者が居なくなったらタイマーをリセット
+                deadlineViolationStartTime = null;
+            }
+        }
+
+        // ゲームオーバー実行
+        function triggerGameOver() {
+            isGameOver = true;
+            Runner.stop(runner); // 物理更新タイマーを停止
+
+            // DOM更新
+            document.getElementById('final-score').innerText = `Score: ${score}`;
+            document.getElementById('ui-layer').classList.add('show');
+        }
+
+        /**
+         * =========================================
+         * 8. リスタート処理
+         * =========================================
+         */
+        document.getElementById('retry-btn').addEventListener('click', () => {
+            document.getElementById('ui-layer').classList.remove('show');
+            resetGame();
+        });
+
+        function resetGame() {
+            // 物理ワールド上の現在のアクティブな動物をすべて消去
+            Composite.remove(engine.world, activeBodies);
+            activeBodies = [];
+            mergeReservations = {};
+            deadlineViolationStartTime = null;
+
+            // スコア・ステータスのリセット
+            score = 0;
+            currentAnimalRank = getRandomSpawnRank();
+            nextAnimalRank = getRandomSpawnRank();
+            lastDropTime = 0;
+            isGameOver = false;
+
+            // 物理エンジン再開
+            Runner.run(runner, engine);
+
+            // クランプを初期化
+            handleInputMove(CANVAS_WIDTH / 2);
+        }
+
+        /**
+         * =========================================
+         * 9. 描画ループ (Canvas 2D API)
+         * =========================================
+         */
+        function renderLoop() {
+            // ===== 1. 背景のクリア =====
+            // 床より上のメインエリア背景
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT - DICT_HEIGHT);
+
+            // 下部図鑑エリアの背景
+            ctx.fillStyle = '#f8f8f8';
+            ctx.fillRect(0, CANVAS_HEIGHT - DICT_HEIGHT, CANVAS_WIDTH, DICT_HEIGHT);
+
+            // ===== 2. ゲーム状態更新 =====
+            if (!isGameOver) {
+                checkGameOver();
+            }
+
+            // 不要な予約フラグの定期的な掃除
+            cleanUpReservations();
+
+            // ===== 3. 描画処理の実行 =====
+
+            // 3-1. 容器 (壁・床)
+            drawWalls();
+
+            // 3-2. デッドライン
+            drawDeadline();
+
+            // 3-3. 動物たち
+            drawActiveAnimals();
+
+            // 3-4. ガイドラインとNEXT動物(落下前)
+            drawInputGuideline();
+
+            // 3-5. UI群 (スコア、NEXT囲み、図鑑)
+            drawUI();
+
+            // ループ続行
+            requestAnimationFrame(renderLoop);
+        }
+
+        // 壁の描画
+        function drawWalls() {
+            ctx.fillStyle = '#d4a97a'; // 茶色系
+            const bodies = Composite.allBodies(engine.world);
+
+            for (let body of bodies) {
+                if (body.renderType === 'wall') {
+                    // 角丸矩形で描画 (Matter.jsの bounds から幅と高さを算出)
+                    const width = body.bounds.max.x - body.bounds.min.x;
+                    const height = body.bounds.max.y - body.bounds.min.y;
+
+                    ctx.beginPath();
+                    ctx.roundRect(
+                        body.position.x - width / 2,
+                        body.position.y - height / 2,
+                        width,
+                        height,
+                        10 // 角丸10px
+                    );
+                    ctx.fill();
+                }
+            }
+        }
+
+        // デッドラインの描画
+        function drawDeadline() {
+            ctx.beginPath();
+            ctx.moveTo(0, DEADLINE_Y);
+            ctx.lineTo(CANVAS_WIDTH, DEADLINE_Y);
+            ctx.strokeStyle = '#ff4d4d'; // 赤
+            ctx.lineWidth = 2;
+            ctx.setLineDash([10, 5]); // 破線
+            ctx.stroke();
+            ctx.setLineDash([]); // リセット
+
+            // 警告エフェクト (ゲームオーバーが近い時)
+            if (deadlineViolationStartTime !== null && !isGameOver) {
+                const elapsed = Date.now() - deadlineViolationStartTime;
+                // 周期的に強まるアルファ値
+                const alpha = Math.abs(Math.sin(elapsed / 150)) * 0.25;
+                ctx.fillStyle = `rgba(255, 0, 0, ${alpha})`;
+                ctx.fillRect(0, 0, CANVAS_WIDTH, DEADLINE_Y);
+            }
+        }
+
+        // 操作ガイドとNEXT（落下前）の描画
+        function drawInputGuideline() {
+            if (isGameOver) return;
+
+            // 青い縦の点線
+            ctx.beginPath();
+            ctx.moveTo(mouseX, DEADLINE_Y);
+            // 図鑑の開始位置(床の少し上)まで
+            ctx.lineTo(mouseX, CANVAS_HEIGHT - DICT_HEIGHT);
+            ctx.strokeStyle = '#add8e6';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // 落下前のどうぶつを半透明で描画
+            const currentRankInfo = RANKS[currentAnimalRank];
+
+            // クールダウン中はOpacityをさらに薄くする
+            const elapsedSinceDrop = Date.now() - lastDropTime;
+            const coolDownRatio = Math.max(0, DROP_COOLDOWN - elapsedSinceDrop) / DROP_COOLDOWN;
+            ctx.globalAlpha = coolDownRatio > 0 ? 0.3 : 0.7;
+
+            // 描画
+            drawSingleAnimalBody(mouseX, 40, currentRankInfo, 0);
+            ctx.globalAlpha = 1.0;
+        }
+
+        // 落ちている・合体した動物の描画
+        function drawActiveAnimals() {
+            for (let body of activeBodies) {
+                if (body.renderType === 'animal') {
+                    const rankInfo = RANKS[body.customRankId];
+                    drawSingleAnimalBody(body.position.x, body.position.y, rankInfo, body.angle);
+                }
+            }
+        }
+
+        // メイン・図鑑UIの描画
+        function drawUI() {
+            // --- 1. スコア (左上) ---
+            ctx.fillStyle = '#333';
+            ctx.font = 'bold 24px Arial';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+            ctx.fillText(`Score: ${score}`, 12, 12);
+
+            // --- 2. NEXT表示 (右上) ---
+            const nextRank = RANKS[nextAnimalRank];
+
+            // 背景丸
+            ctx.beginPath();
+            ctx.arc(CANVAS_WIDTH - 45, 45, 32, 0, Math.PI * 2);
+            ctx.fillStyle = '#fff';
+            ctx.fill();
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // NEXTテキスト
+            ctx.fillStyle = '#333';
+            ctx.font = 'bold 12px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('NEXT', CANVAS_WIDTH - 45, 23);
+
+            // NEXT絵文字
+            ctx.font = '30px Arial';
+            ctx.fillText(nextRank.emoji, CANVAS_WIDTH - 45, 53);
+
+            // --- 3. 図鑑 (画面下部) ---
+            const dictY = CANVAS_HEIGHT - DICT_HEIGHT;
+
+            // 上部の境界線
+            ctx.strokeStyle = '#ccc';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(0, dictY);
+            ctx.lineTo(CANVAS_WIDTH, dictY);
+            ctx.stroke();
+
+            // 全ランクの表示
+            const totalRanks = RANKS.length;
+            // 左右マージン
+            const margin = 10;
+            const availableWidth = CANVAS_WIDTH - margin * 2;
+            // 1要素あたりの幅
+            const step = availableWidth / totalRanks;
+
+            for (let i = 0; i < totalRanks; i++) {
+                const rank = RANKS[i];
+                // 中心X座標
+                const cx = margin + step * i + step / 2;
+
+                // アイコンを描画
+                // Canvas 2DのfillTextをつかう
+                const iconSize = 24;
+                ctx.font = `${iconSize}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(rank.emoji, cx, dictY + DICT_HEIGHT / 2 - 12);
+
+                // 名前テキスト
+                ctx.fillStyle = '#555';
+                ctx.font = 'bold 11px Arial';
+                ctx.fillText(rank.name, cx, dictY + DICT_HEIGHT / 2 + 15);
+
+                // ランク矢印を描画 (最後の要素以外)
+                if (i < totalRanks - 1) {
+                    ctx.fillStyle = '#aaa';
+                    ctx.font = '12px Arial';
+                    ctx.fillText('►', cx + step / 2, dictY + DICT_HEIGHT / 2 - 12);
+                }
+            }
+        }
+
+        // 単一の動物（円＋絵文字）を描画するヘルパー
+        function drawSingleAnimalBody(x, y, rankInfo, angle) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(angle);
+
+            // 1. 背景色の円
+            ctx.beginPath();
+            ctx.arc(0, 0, rankInfo.radius, 0, 2 * Math.PI);
+            ctx.fillStyle = rankInfo.color;
+            ctx.fill();
+
+            // 2. 枠線
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // 3. 絵文字
+            // スマホブラウザでの絵文字の中央揃えは難しいため、少し上に補正をかける
+            const fontSize = rankInfo.radius * 1.1; // 半径より少し大きく
+            ctx.font = `${fontSize}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(rankInfo.emoji, 0, fontSize * 0.05);
+
+            ctx.restore();
+        }
+
+        // 消去されたはずのIDが残らないようにクリーニング
+        function cleanUpReservations() {
+            const currentIds = new Set(activeBodies.map(b => b.id));
+            for (let id in mergeReservations) {
+                if (!currentIds.has(Number(id))) {
+                    delete mergeReservations[id];
+                }
+            }
+        }
+
+        /**
+         * =========================================
+         * 10. アプリケーションの起動
+         * =========================================
+         */
+        window.addEventListener('load', initGame);
 
     </script>
 </body>
