@@ -13,23 +13,17 @@
         * {
             box-sizing: border-box;
             user-select: none;
-            /* テキスト選択禁止 */
             -webkit-user-select: none;
-            /* Safari用 */
             -webkit-touch-callout: none;
-            /* 長押しメニュー禁止 */
             -webkit-tap-highlight-color: transparent;
-            /* タップハイライト非表示 */
             margin: 0;
             padding: 0;
         }
 
         body {
-            /* 背景はわかりやすくグレーめに */
             background-color: #333;
             font-family: 'Helvetica Neue', Arial, sans-serif;
             touch-action: none;
-            /* スクロール防止 */
             display: flex;
             justify-content: center;
             align-items: center;
@@ -43,7 +37,6 @@
             height: 580px;
             background-color: #fff;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
-            /* 丸みをつける */
             border-radius: 8px;
             overflow: hidden;
         }
@@ -54,7 +47,6 @@
             height: 100%;
         }
 
-        /* ゲームオーバー用のオーバーレイ */
         #ui-layer {
             position: absolute;
             top: 0;
@@ -62,7 +54,6 @@
             width: 100%;
             height: 100%;
             pointer-events: none;
-            /* 通常時はクリックなどを貫通させる */
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -75,12 +66,10 @@
             z-index: 10;
         }
 
-        /* ゲームオーバー時に付与するクラス */
         #ui-layer.show {
             opacity: 1;
             visibility: visible;
             pointer-events: auto;
-            /* ボタンクリックを有効化 */
         }
 
         h1 {
@@ -118,7 +107,6 @@
 
 <body>
     <div id="game-container">
-        <!-- Canvasの解像度は360x580基準にする -->
         <canvas id="gameCanvas" width="360" height="580"></canvas>
         <div id="ui-layer">
             <h1>ゲームオーバー</h1>
@@ -128,207 +116,148 @@
     </div>
 
     <script>
-        /**
-         * どうぶつ合体パズル v1.2          追加)          * 
-         * =============================         ===
-         *          定数）
-         * =============================         ===
-         */
-        const CANVAS_WIDTH = 360;
-        const CANVAS_HEIGHT = 580;
-        // 壁の厚さ
+         * ど         v1.3 (ライオン消去対応 ＋                              // 定数
+        const CANVAS_WIDTH = 3            const CANVAS          580;
         const WALL_THICKNESS = 20;
-
-        // デッドラインY座標 (このラインを超えると危険)
-        const DEADLINE_Y = 80;
-        // コリジョン判定などで画面上部とみなすY基準
-        const GAME_OVER_TIME =/ ms
-        
-        // 落下クールダウン(ms) 連続落下防止
+            t DEADLINE_Y = 80;
+        const GAME_OVER_TIME = 1500;
         const DROP_COOLDOWN = 600;
 
-        // ランク定義 (0〜5の6段階)
         const RANKS = [
-            { id: 0, name: 'たまご', emoji: '🥚', radius: 2  score: 10,  color: '#fff8dc' },
-            { id: 1, name: 'ひよこ', emoji: '🐥', radius: 3  score: 30,  color: '#fff3a0' },
-            { id: 2 ame: 'ねこ',   emoji: '🐱', radius: 4  score: 60,  color: '#ffd6a5' },
-            { id: 3 ame: 'いぬ',   emoji: '🐶', radius: 62, score: 100, color: '#ffc8a0' },
-            { id: 4, name: 'パンダ', emoji: '🐼', radius: 76, score: 150, color: '#e8e8e8' },
-            { id: 5, name: 'ライオン', emoji: '🦁', radius: 92, score: 500, color: '#ffd700' } // ライオン同士の消去スコアを500に設定
+            { id: 0, name: 'たまご', emoji: '🥚', radius: 25, score: 10,  color: '#fff8dc' },
+            { id: 1, name: 'ひよこ', emoji: '🐥', radius: 36, s,  color: '#fff3a0' },
+            { id: 2, name: 'ねこ',   emoji: '🐱', radius: 48, score: 60,  color: '#ffd6a5' },
+            { id: 3, name: 'いぬ',   emoji: '🐶', radius: 62, score: 100, c or: '#ffc8a0' },
+            { id: 4, name: 'パンダ', emoji: '🐼', radius: 76, score: 150, c or: '#e8e8e8' },
+            { id: 5, name: 'ライオン',  ji: '🦁', radius: 92, score: 500, c or: '#ffd700' }
         ];
 
-        // スポーン時の重み（確率の目安）
-        const SPAWN_WEIGHTS = [
-            { rank: 0, weight: 50 }, // 最も出やすい
+        const SPAWN_WEIG  = [
+            { rank: 0, weight: 50 },
             { rank: 1, weight: 30 },
-            { rank: 2, weight: 20 }  // 最も出にくい
+            { rank: 2, weight: 20 }
         ];
 
-        // Matter.jsのモジュールをプロパティとして展開
-              gine = Matter.Engine,
-              nner = Matter.Runner,
-              dies = Matter.Bodies,
-                    e = Matter.Composite,
-              E         atter.Events;
-
-        /**
-         * ======         ===========         ======
-         * 2. ゲーム変数
-         * ======         ==========================
-         */
-        let engine;
-        let runner;
-        let canvas;
-        let ctx;
+        let Engine, Runner, Bodies, Composite, Events;
+        let engine, runner, canvas, ctx;
 
         let score = 0;
         let currentAnimalRank = 0;
         let nextAnimalRank = 0;
         let isGameOver = false;
-
-        // 操作用のX座標 (ガイドラインのX)
         let mouseX = CANVAS_WIDTH / 2;
-        // 最後に落下させた時間
         let lastDropTime = 0;
-
-        // 描画・判定用に現在配置されている「どうぶつ」一     let activeBodies = [];
-        
-        // 合体処理中の複数回実行防止フラグ (二重合体防止)
+        let activeBodies = [];
         let mergeReservations = {};
-
-        // デッドライン越えが始まった時刻
         let deadlineViolationStartTime = null;
+            meLoopId = null;
 
-        // 画面下部の図鑑エリアの高          co         HEIGHT = 100;
+                  EIGHT = 100;
 
-        /**
-         * ======         ===========         ======
-         * 3. 初期化関数
-         * ======         ==========================
-         */
-        function initGame() {
+        fu            e() {
+            // Matter.js            
+            if (typeof M        = 'u         ) {
+                alert("Matter.jsの読み込みに失敗         ネット接続を確認して再         い。");
+                return;
+            }
+             Engine = Matter.Engine;
+            Runner = Matter.Runner;
+            Bodies = Matter.Bodies;
+            Composite = Matter.Composite;
+            Events = Matter.Events;
+
             canvas = document.getElementById('gameCanvas');
             ctx = canvas.getContext('2d');
 
-            // Matter.js エンジンの初期化
             engine = Engine.create();
-            // 重力を少しだけ強くしてパズル感を出す
             engine.gravity.y = 1.2;
 
-            // 容器（壁・床）の作成
-            const floorY = CANVAS_HEIGHT - DICT_HEIGHT;
+            const floorY = CANVAS_HEIGT_HEIGHT;
             const floor = Bodies.rectangle(
-                CANVAS_WIDTH / 2, 
-                floorY + WALL_THICKNESS / 2, 
-                CANVAS_WIDTH, 
-                WAL_THICKNESS, 
-                { isStatic: tru, renderType: 'wall' }
-           );
+                CANVAS_WIDTH / 2, floorY + WALL_THICKNESS / 2, 
+                CANVAS_WIDTH, WALL_THICKNESS, 
+                { isStatic: true, renderType         }
+            );
 
-            // 左壁
-           const leftWall = Bodies.rectangle(
-                WALL_THICKNESS / 2, 
-                floorY / 2, 
-                WALL_THICKNESS, 
-                floorY * 2, 
-               { isStatic: true,renderType: 'wall' }
-           );
+            const leftWall = Bodies.re                             _THICKNESS / 2, floorY / 2, 
+                        CKNESS, floorY * 2, 
+                { isStatic: true, renderType: 'wall' }
+            );
 
-            // 右壁
-           const rightWall = Bodies.rectangle(
-                CANVAS_WIDTH - WALL_THICKNESS / 2, 
-                floorY / 2, 
-                WALL_THICKNESS, 
-                floorY * 2, 
-               { isStatic: true,renderType: 'wall' }
-           );
+            const rightWall = Bodies.rectangle(
+                CANVAS_WIDTH - WALL_THICKNESS / 2, floorY / 2, 
+                WALL_THICKNESS, floorY * 2, 
+                { isStatic: true, renderType: 'wall' }
+            );
 
-            // Worldに追加
-           Composite.add(engine.world, [floor, leftWall, rightWall]);
+            Composite.add(engine.world, [floor, leftWall, rightWall]);
 
-            // 最初に出現するどうぶつを抽選
             currentAnimalRank = getRandomSpawnRank();
             nextAnimalRank = getRandomSpawnRank();
 
-            // イベントの設定（マウス・タッチ・衝突）
             setupEvents();
 
-            // 物理エンジンの実行
             runner = Runner.create();
-            Runner.run(runner, engine);
+           Runner.run(runner, engine);
 
-            // 描画ループ開始
-            requestAnimationFrame(renderLoop);
+            gmeLoopId = requestAnimationFrae(renderLoop);
         }
 
-        /**
-         * =========================================
-         * 4. スポーン関数
-         *         ====         ====================
-         */
-        fun         RandomSpawnR                    const totalWeight = SPAWN_WEIGHTS         sum, item) => sum + item.weight, 0);
-            let random = Math.random() * totalWeight;
-            
-            for (let i = 0; i < SPAWN_WEIGHTS.length; i++) {
-                random -= SPAWN_WEIGHTS[i].weight;
-     f (random <= 0) {
-                    return SPAWN_WEIGHTS[i].rank;
-                }
+       function getRandomSpawnRank() {
+            const totalWeight = SPAWN_WEIGHTS.reduce((sum, item) => sum + item.weight, 0);
+            let random = Math.random() * totalWeght;
+            for (let i  0; i < SPAWN_WEIGHTS.length; i+) {
+                random - SPAWN_WEIGHTS[i].weight;
+                if (random <= 0) return SPAWN_WEIGHTS[i].rank;
             }
-            return 0; // フェールセーフ
+            return 0;
         }
 
         function createAnimalBody(x, y, rankId) {
-            const rankInfo = RANKS[rankId];
-            const body = Bodies.circle(x, y, rankInfo.radius, {
+           const rankInfo = RAKS[rankId];
+            const boy = Bodies.circle(x, y, ranknfo.radius, {
                 restitution: 0.2, 
                 friction: 0.5, 
                 density: 0.001 * (rankId + 1),
                 customRankId: rankId,
                 renderType: 'animal'
             });
-            Composite.add(enine.world, body);
+            Composite.add(engine.world, body);
             activeBodies.push(body);
-           return body;
+            return body;
         }
 
-        /**
-         * =========================================
-         * 5. 落下処理
-         * =========================================
-         */
         function handleInputMove(x) {
             if (isGameOver) return;
             const currentRadius = RANKS[currentAnimalRank].radius;
-            const minX = WALL_THICKNESS + currentR                     nst maxX = CANVAS_WIDTH - WALL_THICKNESS - c         ius;
-              useX = Math.max(minX, Math.min(x, maxX));
-                   function handleDrop() {
+            const minX = WALL_THICKNESS + currentRadius;
+            con        = CA         H - WALL_THICKNESS - currentRadius;
+                 X = Math.max         th.min(x, maxX));
+        }
+
+        functio         rop() {
             if (isGameOver) return;
-            
             const now = Date.now();
             if (now - lastDropTime < DROP_COOLDOWN) return;
 
             createAnimalBody(mouseX, 40, currentAnimalRank);
-
-            currentAnimalRank = nextAnimalRank;
-            nextAnimalRank = getRandomSpawnRank()  
+            current nextAnimalRank;
+            nextAnimalRank = getRandomSpawnRank();
             handleInputMove(mouseX);
-
             lastDropTime = now;
         }
 
         function setupEvents() {
-            // -- PC --
-            canvas.addEventListener('mousemove',              const rect = canvas.getBoundingClientRect();
+            canvas.addEventListener('mousemove', (e) => {
+                const rect = canvas.getBoundingClientRect();
                 handleInputMove(e.clientX - rect.left);
             });
             canvas.addEventListener('mousedown', (e) => {
                 if (e.button === 0) handleDrop();
             });
 
-            // -- iPad / スマホ --
-            canvas.addEventListener('touchmove', (e) => {
-                e.preventDefa            if (!e.touches || e.touches.length === 0) return;
+            canvas.addEventListener('tuchmove', (e) => {
+                e.preventDefault();                 if (!e.touches || e.touches.length === 0) return;
                 const rect = canvas.getBoundingClientRect();
                 const touch = e.touches[0];
                 handleInputMove(touch.clientX - rect.left);
@@ -336,56 +265,36 @@
             
             canvas.addEventListener('touchend', (e) => {
                 e.preventDefault();
-                handleDrop();
+                       rop();
             }, { passive: false });
 
-            // Matter.js の衝突イベント
-            Events.on(engine, 'collisionStart', handleCollision);
-        }
-
-        /**
-         * =========================================
-         * 6. 合体・消去処理
-         * =========================================
-         */
-        function handleCollision(event) {
+            Events.         , 'collisionStart', handleCollision);
+                   function handleCollision(event) {
             if (isGameOver) return;
             const pairs = event.pairs;
 
             let bodiesToRemove = [];
-            let bodiesToAdd =      for (let i = 0; i < pairs.length; i++) {
+            let bodiesToAdd = [];
+
+            for (let i = 0; i < pairs.length; i++) {
                 const bodyA = pairs[i].bodyA;
                 const bodyB = pairs[i].bodyB;
 
-                if (bodyA.renderType !== 'animal' || bodyB.renderType !== 'animal') continue;
+     f (bodyA.renderType !== 'animal' || bodyB.renderType !== 'animal') continue;
 
-                // ランクが同じ場合
-                if (         tomRankId === bodyB.customRankId) {
-                    const r         odyA.customRankId;
-                    
-                    if (mergeReservations[bodyA.id] || mergeReservations[bodyB.id]) continue;
+                if (bodyA.customRankId === bodyB.customRankId) {
+                    const rankId = bodyA.custom                if (mergeReservations[bodyA.id] || mergeReservations[bodyB.id]) continue;
 
                     mergeReservations[bodyA.id] = true;
                     mergeReservations[bodyB.id] = true;
 
-                    // スコア加算
                     score += RANKS[rankId].score;
-
-                    // 古い2つを削除対象に
                     bodiesToRemove.push(bodyA, bodyB);
 
-                    // ランク5未満なら次のレベルを生成。ランク5なら生成せず消えるだけ
                     if (rankId < RANKS.length - 1) {
-                        const midX = (bodyA.position.x + bodyB.position.x) / 2;
+            const midX = (bodyA.position.x + bodyB.position.x) / 2;
                         const midY = (bodyA.position.y + bodyB.position.y) / 2;
-
-       iesToAdd.push({
-                            x: midX,
-                            y: midY,
-                            rankId: rankId + 1
-                        });
-                    } else {
-                        // ライオン(5)同士の場合は消去される。特別エフェクトなどはなしでそのまま消える
+                        bodiesToAdd.push({ x: midX, y: midY, rankId: rankId + 1 });
                     }
                 }
             }
@@ -397,32 +306,22 @@
 
                 bodiesToAdd.forEach(data => {
                     const newBody = createAnimalBody(data.x, data.y, data.rankId);
-                    
                     Matter.Body.setVelocity(newBody, {
                         x: (Math.random() - 0.5) * 2,
                         y: (Math.random() - 0.5) * 2
                     });
                 });
-            }
-        }
+          }
 
-        /**
-         * =========================================
-         * 7. ゲームオーバー処理
-         * =========================================
-         */
         function checkGameOver() {
             if (isGameOver) return;
-
-            lefalse;
-            
+            let hasViolator = false;
             for (let body of activeBodies) {
                 const radius = RANKS[body.customRankId].radius;
-                const topEdgeY = body.position.y - radius;
+                const topEdgeY = body.position.y         ;
+                const velocityMag = Math.sqrt(body.velo          2 + body.         y ** 2);
                 
-                const velocityMag = Math.sqrt(body.velocity.x ** 2 + body.velocity.y ** 2);
-                
-                if (topEdgeY < DEADLINE_.0) {
+                if         Y < DEADLINE_Y && velocityMag < 1.0) {
                     hasViolator = true;
                     break;
                 }
@@ -431,32 +330,27 @@
             if (hasViolator) {
                 if (deadlineViolationStartTime === null) {
                     deadlineViolationStartTime = Date.now();
-                } else {
-                    if (Date.now() - de        olat         ime > GAME_OVER_TIME) {
-                             erGameOver();
-                    }
+                } else if (Date.now() - deadlineViolationStartTime > GAME_OVER_TIME) {
+                    triggerGameOver();
                 }
-            }                        deadlineViolationStartTime = null;
+            } else {
+                deadlineViolationStartTime = null;
             }
         }
 
         function triggerGameOver() {
- sGameOver = true;
+            isGameOver = true;
             Runner.stop(runner); 
-            
-            document.getElementById('final-score').innerText = `Score: ${score}`;
+         ntById('final-score').innerText = `Score: ${score}`;
             document.getElementById('ui-layer').classList.add('show');
         }
 
-        /**
-         * =========================================
-     
-         * =========================================
-         */
         document.getElementById('retry-btn').addEventListener('click', () => {
             document.getElementById('ui-layer').classList.remove('show');
             resetGame();
-     function resetGame() {
+        });
+
+        function resetGame() {
             Composite.remove(engine.world, activeBodies);
             activeBodies = [];
             mergeReservations = {};
@@ -472,106 +366,91 @@
             handleInputMove(CANVAS_WIDTH / 2);
         }
 
-        /**
-         * =========================================
-         * 9. 描画ループ (Canvas 2D API)
-         * =========================================
-         */
         function renderLoop() {
-            // 背景クリア
             ctx.fillStyle = '#fff';
             ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT - DICT_HEIGHT);
-            
             ctx.fillStyle = '#f8f8f8';
-            ctx.fillRect(0, CANVAS_HEIGHT - DICT_HEIGHT, CANVAS_WIDTH, DICT           if (!isGameOver) {
-                checkGameOver();
-            }
+            ctx.fillRect(0, CANVAS_HEIGHT - DICT_HEIGHT, CANVAS_WIDTH, DICT_HEIGHT);
 
+            if (!isGameOver) checkGameOver();
             cleanUpReservations();
 
             drawWalls();
-            drawDeadline();
-            drawAct        ls()              drawInputGuideline();
-            drawU                  requ         ionFrame(renderLoop);
+      ne();
+            drawActiveAnimals();
+            drawInputGuideline();
+            drawUI();
+
+            gameLoopId = requestAnimationFrame(renderLoop);
         }
 
-        fun         wWalls() {
-            ctx.fillStyle = '#d4a97a'; // 茶色系
+        function drawWalls() {
+            ctx.fillStyle = '#d4a97a';
             const bodies = Composite.allBodies(engine.world);
-            
             for (let body of bodies) {
-                if (body.renderType === 'wall') {
+                === 'wall') {
                     const width = body.bounds.max.x - body.bounds.min.x;
                     const height = body.bounds.max.y - body.bounds.min.y;
-                    
                     ctx.beginPath();
                     ctx.roundRect(
-                        body.position.x - width/2, 
-                        body.position.y - height/2, 
-                        width, 
-                        height, 
-                        10 
+                        body.position.x - width/2, body.position.y - height/2, 
+                             , height, 10 
                     );
-                    ctx.fill();
-                  }
+                    ctx.fill();                 }
+            }
         }
 
-        function drawDeadline() {
-            ctx.beginPath();                     To(0, DEADLINE_Y);
-            ctx.lineTo(CA         H, DEADLINE_Y);
-                    keStyle = '#ff4d4d'; // 赤
-            ctx.li          2;
-            ctx.setLineDash([10, 5]); // 破線
+        f         rawDeadline() {
+            ctx.beginPath();
+            ctx.moveTo(0, DEADLINE_Y);
+            ctx.lineTo(CANVADLINE_Y);
+            ctx.strokeStyle = '#ff4d4d';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([10, 5]);
             ctx.stroke();
-            ctx.setLineDash([]); // リセット
+            ctx.setLineDash([]);
             
             if (deadlineViolationStartTime !== null && !isGameOver) {
-              sed = Date.now() - deadlineViolationStartTime;
+                const elapsed = Date.ViolationStartTime;
                 const alpha = Math.abs(Math.sin(elapsed / 150)) * 0.25;
                 ctx.fillStyle = `rgba(255, 0, 0, ${alpha})`;
                 ctx.fillRect(0, 0, CANVAS_WIDTH, DEADLINE_Y);
             }
         }
 
-        function drawInputGuideline() {
+        utGuideline() {
             if (isGameOver) return;
-            
-            ctx.be           ctx.moveTo(mouseX, DEADLINE_Y);
-            ouseX, CANVAS_HEIGHT - DICT_HEIGHT);
-            ctx.str#add8e6';
+            ctx.beginPath();
+            ctx.moveTo(mouseX, DEADLINE_Y);
+            ctx.lineTo(mouseX, CANVAS_HEIGHT - DICT_HEIGHT);
+            ctx.strokeStyle = '#add8e6';
             ctx.lineWidth = 2;
-            ctx.se, 5]);
+            ctx.setLineDash([5, 5]);
             ctx.stroke();
             ctx.setLineDash([]);
 
-       urrentRankInfo = RANKS[currentAnimalRank];
-            
+            const currentRankInfo = RANKS[currentAnimalRank];
             const elapsedSinceDrop = Date.now() - lastDropTime;
             const coolDownRatio = Math.max(0, DROP_COOLDOWN - elapsedSinceDrop) / DROP_COOLDOWN;
             ctx.globalAlpha = coolDownRatio > 0 ? 0.3 : 0.7; 
-            
-      ngleAnimalBody(mouseX, 40, currentRankInfo, 0);
+            drawSingleAnimalBody(mouseX, 40, currentRankInfo, 0);
             ctx.globalAlpha = 1.0;
         }
 
         function drawActiveAnimals() {
             for (let body of activeBodies) {
                 if (body.renderType === 'animal') {
-                    const rankInfo = RANKS[body.customRankId];
-     ingleAnimalBody(body.position.x, body.position.y, rankInfo, body.angle);
+                    const rankInfo = RANKS[body.customR                drawSingleAnimalBody(body.position.x, body.position.y, rankInfo, body.angle);
                 }
             }
         }
 
-         function drawUI() {
-            ctx.fillStyle = ' # 33';
-            ctx.font = 'bold24px Arial';
-            ctx.texAlign = 'left';
-            ctx.textBaseline = 'top';
-            ctx.fillText(`Score: ${score}`, 12, 12);
+        function drawUI() {
+            ctx.fillS        #333               ctx.font = 'bold 24px Arial';
+                 extAlign = 'l                  ctx.textBaseline = 'top';
+                  llText(`Score: ${score}`, 12, 12);
 
             const nextRank = RANKS[nextAnimalRank];
-            
             ctx.beginPath();
             ctx.arc(CANVAS_WIDTH - 45, 45, 32, 0, Math.PI * 2);
             ctx.fillStyle = '#fff';
@@ -581,7 +460,8 @@
             ctx.stroke();
 
             ctx.fillStyle = '#333';
-            ctx.font = 'bold 12px Arial   ctx.textAlign = 'center';
+            ctx.font = 'bold 12px Arial';
+            ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText('NEXT', CANVAS_WIDTH - 45, 23);
             
@@ -589,36 +469,32 @@
             ctx.fillText(nextRank.emoji, CANVAS_WIDTH - 45, 53);
 
             const dictY = CANVAS_HEIGHT - DICT_HEIGHT;
-            
-            ctx.strokeStyle = '#ccc';
+  x.strokeStyle = '#ccc';
             ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(0, dictY);
-            ctx.lineTo(CANVAS_WIDTH, dictY);
-            ctx.stroke();
-
-            const totalR.length;
+            ctx.beginPath();                     To(0, dictY);
+            ctx.lineTo(CANVAS_         ctY);
+            ctx.strok                  const totalRanks = RANKS.length;
             const margin = 10;
             const availableWidth = CANVAS_WIDTH - margin * 2;
             const step = availableWidth / totalRanks;
             
             for (let i = 0; i < totalRanks; i++) {
-                const rank = RANKS[i];
+            nk = RANKS[i];
                 const cx = margin + step * i + step / 2;
                 
-                const iconSize = 24;
-                ctx.font = `${iconSize}px Arial`;
-                ctx.textAlign =               ctx.textBaseline = 'middle';
+                ctx.font = `24px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
                 ctx.fillText(rank.emoji, cx, dictY + DICT_HEIGHT / 2 - 12);
                 
                 ctx.fillStyle = '#555';
-                ctx.font = 'bold 11px Arial';
-                ctx.fillText(rank.name DICT_HEIGHT / 2 + 15);
+                ctx.fontx Arial';
+                ctx.fillText(rank.name, cx, dHEIGHT / 2 + 15);
                 
-                if (i < totalRanks - 1) {
+                if (is - 1) {
                     ctx.fillStyle = '#aaa';
-                    ctx.font = '12px Arial';
-                    ctx.fillText('►', cx + step / 2, dictY + DICT_HEIGHT / 2 - 12);
+        ctx.font = '12px Arial';
+                    ctx.fillText('►', cx + step+ DICT_HEIGHT / 2 - 12);
                 }
             }
         }
@@ -629,8 +505,7 @@
             ctx.rotate(angle);
 
             ctx.beginPath();
-            ctx.arc(0, 0, rankInfo.radius, 0, 2 * Math.PI);
-            ctx.fillStyle = rankInfo.color;
+            ctx.arc(0, 0, rankInfo.radius, 0, 2 *           ctx.fillStyle = rankInfo.color;
             ctx.fill();
             
             ctx.strokeStyle = '#333';
@@ -639,15 +514,14 @@
 
             const fontSize = rankInfo.radius * 1.1; 
             ctx.font = `${fontSize}px Arial`;
-            ctx.textAlign = 'center';
-            ctx.textBaselin;
+            ctx.textAli       ctx.textBaseline = 'middle';
             ctx.fillText(rankInfo.emoji, 0, fontSize * 0.05);
 
-            ctx.restore();
+            ctx.resto r e(;
         }
 
-        function cleanUpReservations() {
-            const currentIds = new Set(activeBodies.map(b => b.id));
+        function cleanUpReservations ( ) 
+            const currentIds =new Set(activeBodies.map(b => b.d));
             for (let id in mergeReservations) {
                 if (!currentIds.has(Number(id))) {
                     delete mergeReservations[id];
@@ -655,12 +529,12 @@
             }
         }
 
-        /**
-         * =========================================
-         * 10. アプリケーションの起動
-         *==============================
-         */
-        window.addEventListener('load', initGame);
+        // ====== 変更点 ======
+        // Matter.jsのCDNからの読み込みタイミングズレによる白画面エラーを防ぐため
+        // `window.addEventListener('load', ...)` の中で初期化するように変更
+        window.addEventListener('load', () => {
+            initGame();
+        });
 
     </script>
 </body>
