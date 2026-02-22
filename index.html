@@ -41,6 +41,8 @@
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
             border-radius: 8px;
             overflow: hidden;
+            /* JSからscale()でズームするための基点を中央に固定 */
+            transform-origin: center center;
         }
 
         canvas {
@@ -835,6 +837,7 @@
             ctx.stroke();
 
             // 絵文字（中央に配置）
+            // ※ 1.8倍で円いっぱいのサイズになる（大きすぎる場合は1.5〜1.7に下げてください）
             const fontSize = rankInfo.radius * 1.8;
             ctx.font         = `${fontSize}px Arial`;
             ctx.textAlign    = 'center';
@@ -859,10 +862,49 @@
          * 12. 起動
          * =============================================
          */
-        window.addEventListener('load', initGame);
+
+        /**
+         * =============================================
+         * 13. 画面サイズに合わせてゲームをスケーリングする
+         *
+         * 【方法】CSS の transform: scale() を使う
+         *   ゲームの幅(360px)・高さ(580px)は変えず、
+         *   画面に収まる最大倍率に拡大・縮小するだけ。
+         *   物理演算やゲームロジックは一切変更不要。
+         *
+         * 【動作タイミング】
+         *   - ページ読み込み時
+         *   - ウィンドウリサイズ時（PCで窓を縮めた場合など）
+         * =============================================
+         */
+        function scaleGame() {
+            const container = document.getElementById('game-container');
+
+            // ゲーム本来のサイズ
+            const gameW = 360;
+            const gameH = 580;
+
+            // 画面の表示可能サイズ（少し余白を取るために 0.95 をかける）
+            const availW = window.innerWidth  * 0.95;
+            const availH = window.innerHeight * 0.95;
+
+            // 縦と横それぞれで何倍まで拡大できるか計算し、小さい方を採用
+            // （はみ出さないようにするため）
+            const scaleX = availW / gameW;
+            const scaleY = availH / gameH;
+            const scale  = Math.min(scaleX, scaleY);
+
+            // 1倍以下（スマホ等で元より小さくしたくない場合）は 1 を下限にする場合は
+            // Math.min(scaleX, scaleY) をそのまま使えばOK（縮小も自動対応）
+            container.style.transform = `scale(${scale})`;
+        }
+
+        // ページ読み込み時にスケーリング実行
+        window.addEventListener('resize', scaleGame);
+
+        window.addEventListener('load', () => { initGame(); scaleGame(); });
 
     </script>
 </body>
 
 </html>
-
